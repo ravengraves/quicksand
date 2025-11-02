@@ -15,8 +15,7 @@ static volatile f64 TICK_PER_NS = 0.0;
 
 extern u64 quicksand_now(void);
 
-f64 quicksand_ns(u64 final_timestamp, u64 initial_timestamp)
-{
+f64 quicksand_ns(u64 final_timestamp, u64 initial_timestamp) {
 	if(NS_PER_TICK <= 0.0) {
 		quicksand_ns_calibrate(1e6); // delay for 1 millisecond
 	}
@@ -34,8 +33,7 @@ f64 quicksand_ns(u64 final_timestamp, u64 initial_timestamp)
 
 
 // Calibrate conversion from timestamp counters to nanoseconds
-void quicksand_ns_calibrate(f64 nanoseconds)
-{
+void quicksand_ns_calibrate(f64 nanoseconds) {
 	// Save the start time
 	LARGE_INTEGER freq, start_qpc, stop_qpc, stop_qpc_2;
 	QueryPerformanceFrequency(&freq);
@@ -81,8 +79,7 @@ void quicksand_ns_calibrate(f64 nanoseconds)
 	TICK_PER_NS = (f64) elapsed_ticks / (f64) elapsed_ns;
 }
 
-void quicksand_sleep(f64 nanoseconds)
-{
+void quicksand_sleep(f64 nanoseconds) {
 	if(nanoseconds < 0.0) {
 		return;
 	}

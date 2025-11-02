@@ -6,13 +6,11 @@
 
 static volatile int ok = 1;
 
-void interrupt()
-{
+void interrupt() {
 	ok = 0;
 }
 
-int main()
-{
+int main() {
 	signal(SIGINT, interrupt);
 	quicksand_connection *reader = NULL;
 	int64_t disconnected = 1;

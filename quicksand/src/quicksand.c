@@ -45,8 +45,7 @@
 #endif
 
 // memcpy(dest, src, bytes);
-static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n)
-{
+static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n) {
 	u64 i = 0;
 	for(; i + 64 <= n; i += 64) {
 		u64 *dstptr = (u64 *) (dest + i);
@@ -79,8 +78,7 @@ static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n)
 // ---------------------------------------------------------------------
 // Helper – round a number up to a multiple of 64 (cache line)
 // ---------------------------------------------------------------------
-static inline i64 round_to_64(i64 v)
-{
+static inline i64 round_to_64(i64 v) {
 	i64 rem = v & 63;
 	return (rem == 0) ? v : (v + (64 - rem));
 }
@@ -88,8 +86,7 @@ static inline i64 round_to_64(i64 v)
 // ---------------------------------------------------------------------
 // Helper – round a number up to a power of two
 // ---------------------------------------------------------------------
-static inline i64 round_to_pow2(i64 v)
-{
+static inline i64 round_to_pow2(i64 v) {
 	i64 res = 1;
 	while(res < v) {
 		res = res << 1;
@@ -102,8 +99,7 @@ static inline i64 round_to_pow2(i64 v)
 //           array that lives inside quicksand_connection.
 // ---------------------------------------------------------------------
 static inline void copy_topic_to_name(quicksand_connection *c, const char *topic,
-				      i64 topic_len)
-{
+				      i64 topic_len) {
 	memset(c->name, 0, sizeof(c->name));
 	size_t copy_len = (size_t) topic_len;
 	if(copy_len >= sizeof(c->name)) {
@@ -118,8 +114,7 @@ static inline void copy_topic_to_name(quicksand_connection *c, const char *topic
 // ---------------------------------------------------------------------
 i64 quicksand_connect(quicksand_connection **out, char *topic,
 		      i64 topic_length, i64 message_size,
-		      i64 message_rate, void *alloc)
-{
+		      i64 message_rate, void *alloc) {
 	// -----------------------------------------------------------------
 	// Parameter validation
 	// -----------------------------------------------------------------
@@ -316,8 +311,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 // ---------------------------------------------------------------------
 // quicksand_disconnect – undo everything done in quicksand_connect
 // ---------------------------------------------------------------------
-void quicksand_disconnect(quicksand_connection **c, void *dealloc)
-{
+void quicksand_disconnect(quicksand_connection **c, void *dealloc) {
 	if(!(*c)) {
 		return;
 	}
@@ -340,8 +334,7 @@ void quicksand_disconnect(quicksand_connection **c, void *dealloc)
 	*c = NULL;
 }
 
-void quicksand_delete(char *topic, i64 topic_length)
-{
+void quicksand_delete(char *topic, i64 topic_length) {
 	char name_buf[256] = {0};
 	if(topic_length == -1) {
 		// -1 means “use strlen()”.  The original code behaved the same.
@@ -356,8 +349,7 @@ void quicksand_delete(char *topic, i64 topic_length)
 // ---------------------------------------------------------------------
 // internal - attempt to un-lock a stalled ringbuffer.
 // ---------------------------------------------------------------------
-static i64 _quicksand_unlock(quicksand_ringbuffer *ring, u64 locktime)
-{
+static i64 _quicksand_unlock(quicksand_ringbuffer *ring, u64 locktime) {
 	u64 now = quicksand_now();
 	if(!ring) {
 		return -1;
@@ -389,8 +381,7 @@ static i64 _quicksand_unlock(quicksand_ringbuffer *ring, u64 locktime)
 // ---------------------------------------------------------------------
 // quicksand_write – put a new payload into the ring buffer
 // ---------------------------------------------------------------------
-i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len)
-{
+i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	u64 start_time = quicksand_now();
 	if(!c || !msg) {
 		return -EINVAL;
@@ -465,8 +456,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len)
 // ---------------------------------------------------------------------
 // quicksand_read – fetch the next available payload, if any
 // ---------------------------------------------------------------------
-i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len)
-{
+i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	if(!c || !msg || !msg_len) {
 		return -EINVAL;
 	}

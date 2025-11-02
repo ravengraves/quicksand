@@ -99,21 +99,18 @@ double quicksand_ns_calibrate(double nanoseconds);
 void quicksand_sleep(double nanoseconds);
 
 /// Return elapsed time
-inline double quicksand_elapsed(uint64_t initial_timestamp)
-{
+inline double quicksand_elapsed(uint64_t initial_timestamp) {
 	return quicksand_ns(quicksand_now(), initial_timestamp);
 }
 
 // Return number of remaining messages
-inline uint64_t quicksand_read_remaining(quicksand_connection *connection)
-{
+inline uint64_t quicksand_read_remaining(quicksand_connection *connection) {
 	return connection->read_index - connection->buffer->index;
 }
 
 // Return latest message if new messages are available.
 inline int64_t quicksand_read_latest(quicksand_connection *connection,
-				     uint8_t *message, int64_t *message_size)
-{
+				     uint8_t *message, int64_t *message_size) {
 	// Return last message if new messages are available
 	if(connection->read_index < connection->buffer->index) {
 		connection->read_index = connection->buffer->index - 1;

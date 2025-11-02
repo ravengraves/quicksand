@@ -3,8 +3,7 @@
 
 #include "quicksand.h"
 
-int main()
-{
+int main() {
 	quicksand_connection *writer = NULL;
 	quicksand_connection *reader = NULL;
 	quicksand_delete("test", -1);

@@ -6,8 +6,7 @@
 
 #include "quicksand.h"
 
-int main(void)
-{
+int main(void) {
 	quicksand_ns_calibrate(1e6); // 1 millisecond
 
 	double mean = 0.0;

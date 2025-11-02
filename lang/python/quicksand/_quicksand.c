@@ -47,8 +47,7 @@ static void (*p_quicksand_sleep)(double) = NULL;
 /* ------------------------ 2.  load a single symbol -------------------------*/
 
 static int
-load_symbol(const char *sym, void **ptr)
-{
+load_symbol(const char *sym, void **ptr) {
 	void *addr = dlsym(lib_handle, sym);
 	if(!addr) {
 		PyErr_Format(PyExc_RuntimeError,
@@ -62,8 +61,7 @@ load_symbol(const char *sym, void **ptr)
 /* ----------- 3.  Create a PyCapsule holding a quicksand_connection* --------*/
 
 static PyObject *
-capsule_from_conn(quicksand_connection *conn)
-{
+capsule_from_conn(quicksand_connection *conn) {
 	/* No destructor – we explicitly disconnect from Python side. */
 	return PyCapsule_New((void *) conn,
 			     "quicksand_connection",
@@ -74,8 +72,7 @@ capsule_from_conn(quicksand_connection *conn)
 
 /* 4.  Connect – correct kwlist and format string */
 static PyObject *
-py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds)
-{
+py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds) {
 	static const char *kwlist[] = {"topic",
 				       "message_size",
 				       "message_rate",
@@ -113,8 +110,7 @@ py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds)
 }
 
 static PyObject *
-py_quicksand_delete(PyObject *self, PyObject *args, PyObject *kwds)
-{
+py_quicksand_delete(PyObject *self, PyObject *args, PyObject *kwds) {
 	static const char *kwlist[] = {"topic", NULL};
 
 	const char *topic;
@@ -133,8 +129,7 @@ py_quicksand_delete(PyObject *self, PyObject *args, PyObject *kwds)
 }
 
 static PyObject *
-py_quicksand_disconnect(PyObject *self, PyObject *arg)
-{
+py_quicksand_disconnect(PyObject *self, PyObject *arg) {
 	quicksand_connection *conn;
 
 	if(!PyCapsule_CheckExact(arg)) {
@@ -154,8 +149,7 @@ py_quicksand_disconnect(PyObject *self, PyObject *arg)
 }
 
 static PyObject *
-py_quicksand_write(PyObject *self, PyObject *args)
-{
+py_quicksand_write(PyObject *self, PyObject *args) {
 	PyObject *capsule, *msg_obj;
 	quicksand_connection *conn;
 	Py_buffer view;
@@ -198,8 +192,7 @@ py_quicksand_write(PyObject *self, PyObject *args)
 }
 
 static PyObject *
-_py_quicksand_read(PyObject *self, PyObject *args, int latest)
-{
+_py_quicksand_read(PyObject *self, PyObject *args, int latest) {
 	PyObject *capsule, *buf_obj;
 	quicksand_connection *conn;
 	Py_buffer view;
@@ -285,22 +278,19 @@ _py_quicksand_read(PyObject *self, PyObject *args, int latest)
 }
 
 static PyObject *
-py_quicksand_read(PyObject *self, PyObject *args)
-{
+py_quicksand_read(PyObject *self, PyObject *args) {
 	return _py_quicksand_read(self, args, 0);
 }
 
 static PyObject *
-py_quicksand_read_latest(PyObject *self, PyObject *args)
-{
+py_quicksand_read_latest(PyObject *self, PyObject *args) {
 	return _py_quicksand_read(self, args, 1);
 }
 
 /* ------------------------------ misc helpers -------------------------------*/
 
 static PyObject *
-py_quicksand_remaining(PyObject *self, PyObject *args)
-{
+py_quicksand_remaining(PyObject *self, PyObject *args) {
 	PyObject *capsule;
 	quicksand_connection *conn;
 	Py_buffer view;
@@ -327,14 +317,12 @@ py_quicksand_remaining(PyObject *self, PyObject *args)
 /* ------------------------------ timing functions -------------------------------*/
 
 static PyObject *
-py_quicksand_now(PyObject *self, PyObject *Py_UNUSED(ignored))
-{
+py_quicksand_now(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 	return PyLong_FromUnsignedLongLong(p_quicksand_now());
 }
 
 static PyObject *
-py_quicksand_ns(PyObject *self, PyObject *args)
-{
+py_quicksand_ns(PyObject *self, PyObject *args) {
 	uint64_t end, start;
 
 	if(!PyArg_ParseTuple(args, "KK", &end, &start)) {
@@ -344,8 +332,7 @@ py_quicksand_ns(PyObject *self, PyObject *args)
 }
 
 static PyObject *
-py_quicksand_ns_elapsed(PyObject *self, PyObject *args)
-{
+py_quicksand_ns_elapsed(PyObject *self, PyObject *args) {
 	uint64_t start;
 
 	if(!PyArg_ParseTuple(args, "K", &start)) {
@@ -355,8 +342,7 @@ py_quicksand_ns_elapsed(PyObject *self, PyObject *args)
 }
 
 static PyObject *
-py_quicksand_sleep(PyObject *self, PyObject *args)
-{
+py_quicksand_sleep(PyObject *self, PyObject *args) {
 	double ns;
 
 	if(!PyArg_ParseTuple(args, "d", &ns)) {
@@ -410,8 +396,7 @@ static struct PyModuleDef quicksandmodule = {
 /* ----------------------------- 7.  Module init -----------------------------*/
 
 PyMODINIT_FUNC
-PyInit__quicksand(void)
-{
+PyInit__quicksand(void) {
 	PyObject *m = PyModule_Create(&quicksandmodule);
 	if(!m) {
 		return NULL;
