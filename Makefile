@@ -15,7 +15,7 @@ PREFIX?=/usr/local
 # Release flags
 CFLAGS := -Wall -Wextra -Wpedantic -Werror -std=c11 -fPIC -flto \
 	-fno-stack-protector -D_FORTIFY_SOURCE=0 \
-	-I quicksand/include -Ofast -ffast-math -mtune=native
+	-I quicksand/include -O3 -ffast-math -mtune=native
 LDFLAGS := -flto
 
 ifeq ($(ARCH),x86_64)
