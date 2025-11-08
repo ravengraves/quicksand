@@ -9,14 +9,17 @@ PREFIX?=/usr/local
 # CFLAGS := -Wall -Wextra -Wpedantic -Werror -std=c11 -fPIC -flto \
 # 	-fstack-protector-all -D_FORTIFY_SOURCE=3 \
 # 	-ffunction-sections -fdata-sections -march=native -mtune=native \
-# 	-I quicksand/include -Ofast -g -ffast-math -fsanitize=address,undefined
+# 	-I quicksand/include -O3 -g -ffast-math -fsanitize=address,undefined
 # LDFLAGS := -flto -fsanitize=address,undefined
+# CEXE := -fuse-ld=lld
 
 # Release flags
 CFLAGS := -Wall -Wextra -Wpedantic -Werror -std=c11 -fPIC -flto \
 	-fno-stack-protector -D_FORTIFY_SOURCE=0 \
+	-ffunction-sections -fdata-sections \
 	-I quicksand/include -O3 -ffast-math -mtune=native
-LDFLAGS := -flto
+CEXE := -fuse-ld=lld -Wl,-gc-sections,-icf=safe,-s
+LDFLAGS := -flto -fuse-ld=lld
 
 ifeq ($(ARCH),x86_64)
 	CFLAGS += -march=native
@@ -58,23 +61,23 @@ build/quicksand.o: quicksand/src/quicksand.c
 
 build/test/basic: build/libquicksand.a test/test_basic.c
 	mkdir -p build/test
-	$(CC) -o build/test/basic test/test_basic.c $(CFLAGS) \
+	$(CC) -o build/test/basic test/test_basic.c $(CFLAGS) $(CEXE) \
 		build/libquicksand.a
 		# (shared:) -L build -lquicksand
 
 build/test/time: build/libquicksand.a test/test_time.c
 	mkdir -p build/test
-	$(CC) -o build/test/time test/test_time.c $(CFLAGS) \
+	$(CC) -o build/test/time test/test_time.c $(CFLAGS) $(CEXE) \
 		build/libquicksand.a
 
 build/test/pub: build/libquicksand.a test/test_pub.c
 	mkdir -p build/test
-	$(CC) -o build/test/pub test/test_pub.c $(CFLAGS) \
+	$(CC) -o build/test/pub test/test_pub.c $(CFLAGS) $(CEXE) \
 		build/libquicksand.a
 
 build/test/sub: build/libquicksand.a test/test_sub.c
 	mkdir -p build/test
-	$(CC) -o build/test/sub test/test_sub.c $(CFLAGS) \
+	$(CC) -o build/test/sub test/test_sub.c $(CFLAGS) $(CEXE) \
 		build/libquicksand.a
 
 check: build/test/basic build/test/time
@@ -88,10 +91,10 @@ compile_commands.json: Makefile
 	'{"directory":"$(PWD)","command":"$(CC) -c $(CFLAGS) quicksand/src/quicksand.c -o build/quicksand.o","file":"quicksand/src/quicksand.c"},\n' \
 	'{"directory":"$(PWD)","command":"$(CC) -shared -o build/libquicksand.so build/quicksand_now.o build/quicksand_time.o build/quicksand.o $(LDFLAGS)","file":"build/libquicksand.so"},\n' \
 	'{"directory":"$(PWD)","command":"$(AR) rcs build/libquicksand.a build/quicksand_now.o build/quicksand_time.o build/quicksand.o","file":"build/libquicksand.a"},\n' \
-	'{"directory":"$(PWD)","command":"$(CC) -o build/test/basic test/test_basic.c $(CFLAGS) build/libquicksand.a","file":"test/test_basic.c"},\n' \
-	'{"directory":"$(PWD)","command":"$(CC) -o build/test/time test/test_time.c $(CFLAGS) build/libquicksand.a","file":"test/test_time.c"},\n' \
-	'{"directory":"$(PWD)","command":"$(CC) -o build/test/pub test/test_pub.c $(CFLAGS) build/libquicksand.a","file":"test/test_pub.c"},\n' \
-	'{"directory":"$(PWD)","command":"$(CC) -o build/test/sub test/test_sub.c $(CFLAGS) build/libquicksand.a","file":"test/test_sub.c"}\n]' \
+	'{"directory":"$(PWD)","command":"$(CC) -o build/test/basic test/test_basic.c $(CFLAGS) $(CEXE) build/libquicksand.a","file":"test/test_basic.c"},\n' \
+	'{"directory":"$(PWD)","command":"$(CC) -o build/test/time test/test_time.c $(CFLAGS) $(CEXE) build/libquicksand.a","file":"test/test_time.c"},\n' \
+	'{"directory":"$(PWD)","command":"$(CC) -o build/test/pub test/test_pub.c $(CFLAGS) $(CEXE) build/libquicksand.a","file":"test/test_pub.c"},\n' \
+	'{"directory":"$(PWD)","command":"$(CC) -o build/test/sub test/test_sub.c $(CFLAGS) $(CEXE) build/libquicksand.a","file":"test/test_sub.c"}\n]' \
 	> $@
 
 format:

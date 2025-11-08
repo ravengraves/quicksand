@@ -4,7 +4,7 @@ A multiple-reader multiple-writer communication library enabling robots to think
 
 We have benchmarked processing over 20 million messages per second per process on a on a 2020 laptop processor (i7-1165G7 @ 2.80GHz). This library uses a lock-free shared-memory ring buffer in order to perform inter-process message passing significantly faster than other libraries.
 
-## Usage - Python
+## Usage - Python 🐍
 
 Publisher - Python
 ```Python
@@ -47,7 +47,7 @@ Output (Python 3.10, Clang 14.0.0, i7-1165G7 @ 2.80GHz):
 1500912.66844739 msgs/s
 ```
 
-## Usage - C
+## Usage - C 🚀
 
 Publisher example - C
 ```C
@@ -192,7 +192,7 @@ $ ./build/test/sub
 20429499.443235 msgs/s (drop: 0.000000 %)
 ```
 
-## Installation
+## Installation 📖
 
 Install library:
 ```
@@ -205,3 +205,20 @@ Python install (after library install):
 ```
 cd lang/python && pip install .
 ```
+
+## License ⚖
+
+Copyright © 2025 Alec Graves
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
