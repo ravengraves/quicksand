@@ -19,7 +19,7 @@ CFLAGS := -Wall -Wextra -Wpedantic -Werror -std=c11 -fPIC -flto \
 	-ffunction-sections -fdata-sections \
 	-I quicksand/include -O3 -ffast-math -mtune=native
 CEXE := -fuse-ld=lld -Wl,-gc-sections,-icf=safe,-s
-LDFLAGS := -flto -fuse-ld=lld
+LDFLAGS := -fuse-ld=lld
 
 ifeq ($(ARCH),x86_64)
 	CFLAGS += -march=native

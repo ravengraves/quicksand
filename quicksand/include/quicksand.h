@@ -1,127 +1,263 @@
+/**
+ * @file quicksand.h
+ * @brief Public interface for Quicksand, a lock-free shared-memory ringbuffer
+ * 	communication library
+ *
+ * This header defines the data structures, API functions, and macros used to
+ * create, connect to, read from and write to a lock‑free ring buffer that is
+ * backed by a shared memory segment.  The implementation is written in
+ * C but can be used from C++ code thanks to the extern "C" guard.
+ */
+
 #ifndef QUICKSAND_H
 #define QUICKSAND_H
-#ifdef __cplusplus // C++ compatibility
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
 #include <stdatomic.h>
 #include <stdint.h>
 
+/** Size of a cache line on most modern CPUs (in bytes). */
 #define CACHE_LINE_SIZE 64
 
-// Quicksand ring buffer data struct
+/** @brief Ring buffer data structure.
+ *
+ *  The ring buffer is placed in shared memory immediately followed by the
+ *  actual message payload array (`char data[]`).  All indices are modulo
+ *  `length`.  The layout is padded to avoid false sharing between threads.
+ */
 typedef struct {
-	uint64_t length;				   // Number of slots
-	uint64_t message_size;				   // Size (bytes) of slot
-	char pad1[CACHE_LINE_SIZE - 2 * sizeof(int64_t)];  //
-	volatile _Atomic(uint64_t) reserve;		   // Writer reserve index
-	char pad2[CACHE_LINE_SIZE - sizeof(uint64_t)];	   //
-	volatile _Atomic(uint64_t) index;		   // Ring current head
-	volatile _Atomic(uint64_t) updatestamp;		   // Last update timestamp
-	volatile _Atomic(uint64_t) locked;		   // Write timeout stamp
-	char pad3[CACHE_LINE_SIZE - 3 * sizeof(uint64_t)]; //
-} quicksand_ringbuffer;
-// char data[]  // (DATA STORED IN SHM AFTER BUFFER)
+    /** Number of slots in the buffer. */
+    uint64_t length;
 
-// Quicksand Reader/Writer information struct
+    /** Size (bytes) of each slot. */
+    uint64_t message_size;
+
+    /** Padding to align the next field to a cache line boundary. */
+    char pad1[CACHE_LINE_SIZE - 2 * sizeof(int64_t)];
+
+    /** Writer reserve index (atomic).  Writers increment this value before
+     *  writing a slot to claim it. */
+    volatile _Atomic(uint64_t) reserve;
+
+    /** Padding to align the next field to a cache line boundary. */
+    char pad2[CACHE_LINE_SIZE - sizeof(uint64_t)];
+
+    /** Current head index of the ring buffer (atomic).  Readers consume
+     *  slots up to this value. */
+    volatile _Atomic(uint64_t) index;
+
+    /** Last update timestamp (atomic). */
+    volatile _Atomic(uint64_t) updatestamp;
+
+    /** Write timeout stamp (atomic). */
+    volatile _Atomic(uint64_t) locked;
+
+    /** Padding to align the next field to a cache line boundary. */
+    char pad3[CACHE_LINE_SIZE - 3 * sizeof(uint64_t)];
+} quicksand_ringbuffer;
+
+/** @brief Reader/Writer connection information. */
 typedef struct {
-	uint64_t read_stamp;	       // Last read timestamp
-	uint64_t read_index;	       // Last read index
-	uint64_t shared_memory_handle; // OS Shared memory handle
-	uint64_t shared_memory_size;   // Size of shared memory segment
-	quicksand_ringbuffer *buffer;  // Mapped ring buffer address
-	uint8_t name[256];	       // Shared memory name
+    /** Last read timestamp. */
+    uint64_t read_stamp;
+
+    /** Last read index. */
+    uint64_t read_index;
+
+    /** OS shared‑memory handle. */
+    uint64_t shared_memory_handle;
+
+    /** Size of the shared memory segment. */
+    uint64_t shared_memory_size;
+
+    /** Mapped ring buffer address. */
+    quicksand_ringbuffer *buffer;
+
+    /** Shared memory name. */
+    uint8_t name[256];
 } quicksand_connection;
 
-/// Core reading/writing
+/* -------------------------------------------------------------------------- */
+/* Core reading/writing                                                     */
+/* -------------------------------------------------------------------------- */
 
-// Connect to a shared memory ring buffer
-// Parameters:
-// (OUT) connection: pointer to warren_tunnel object or null.
-// topic: shared memory segment name
-// topic_length: bytes of message size minus null termination (-1 to use strlen)
-// message_size: max size per message (-1 to connect)
-// message_rate: max number of messages per second (-1 to connect)
-// alloc: custom allocator following malloc(size_t) semantics, or null.
-// Returns: 0 if successful or -x for error
+/** @brief Connect to a shared‑memory ring buffer.
+ *
+ *  This function creates or connects to a POSIX shared memory segment that
+ *  contains a Quicksand ring buffer.  The caller receives a pointer to a
+ *  @c quicksand_connection structure that can be used for subsequent read
+ *  and write operations.
+ *
+ *  @param connection   (OUT) Pointer to a @c quicksand_connection* that will
+ *                      be allocated and initialized on success.  Pass
+ *                      @c NULL to receive an error code without allocating
+ *                      a connection object.
+ *  @param topic        Shared memory segment name.
+ *  @param topic_length Length of the name in bytes (excluding the terminating
+ *                      null); pass @c -1 to use @c strlen().
+ *  @param message_size Maximum size per message in bytes; pass @c -1 to use
+ *                      the default size specified by the buffer.
+ *  @param message_rate Maximum number of messages per second; pass @c -1 to
+ *                      use the default rate specified by the buffer.
+ *  @param alloc        Custom allocator that follows @c malloc(size_t)
+ *                      semantics, or @c NULL to use the system allocator.
+ *
+ *  @return 0 on success, or a negative error code on failure.
+ */
 int64_t quicksand_connect(quicksand_connection **connection, char *topic,
-			  int64_t topic_length, int64_t message_size,
-			  int64_t message_rate, void *alloc);
+                          int64_t topic_length, int64_t message_size,
+                          int64_t message_rate, void *alloc);
 
-// Disconnect from a ring buffer and free connection memory
-// Provide a custom deallocator following free(void*) semantics if required.
+/** @brief Disconnect from a ring buffer and free the connection memory.
+ *
+ *  The function releases the shared memory mapping and frees the
+ *  @c quicksand_connection structure.  A custom deallocator can be supplied
+ *  that follows @c free(void*) semantics.
+ *
+ *  @param connection Pointer to the connection to disconnect.  The pointer
+ *                    will be set to @c NULL after the call.
+ *  @param dealloc    Custom deallocator, or @c NULL to use the system
+ *                    deallocator.
+ */
 void quicksand_disconnect(quicksand_connection **connection, void *dealloc);
 
-// Delete a topic, freeing it to be re-created (affects new connections)
+/** @brief Delete a topic, freeing it for recreation.
+ *
+ *  This removes the shared memory segment identified by @p topic, making it
+ *  possible to create a fresh buffer with the same name later on.  All
+ *  existing connections to that topic will become invalid.
+ *
+ *  @param topic        Shared memory segment name.
+ *  @param topic_length Length of the name in bytes (excluding the null);
+ *                      pass @c -1 to use @c strlen().
+ */
 void quicksand_delete(char *topic, int64_t topic_length);
 
-// Write a message of a specified size to the ring buffer
-// Parameters:
-// connection: the initialized quicksand connection
-// message: pointer to message data to write
-// message_size: size of data to write.
-// Returns 0 if successful or -x for error
+/** @brief Write a message to the ring buffer.
+ *
+ *  The caller supplies a pointer to the data and its size.  The function
+ *  copies the data into the next available slot in the shared memory
+ *  buffer.
+ *
+ *  @param connection   Initialized @c quicksand_connection.
+ *  @param message      Pointer to the message data to write.
+ *  @param message_size Size of the data to write in bytes.
+ *
+ *  @return 0 on success, or a negative error code on failure.
+ */
 int64_t quicksand_write(quicksand_connection *connection, uint8_t *message,
-			int64_t message_size);
+                        int64_t message_size);
 
-// Read a message with a max size from the ring buffer
-// Parameters:
-// connection: the initialized quicksand connection
-// message: pointer to buffer to store message
-// (IN/OUT) message_size: max size to read, overwritten with bytes read
-// Returns: number of messages remaining, -1 for no message read or -1
+/** @brief Read a message from the ring buffer.
+ *
+ *  The function attempts to read the next available message.  If a message
+ *  is available, it copies up to @p *message_size bytes into the provided
+ *  buffer and updates @p *message_size with the number of bytes actually
+ *  read.
+ *
+ *  @param connection   Initialized @c quicksand_connection.
+ *  @param message      Buffer to receive the message.
+ *  @param message_size (IN/OUT) Maximum size to read; overwritten with the
+ *                      number of bytes actually read.
+ *
+ *  @return Number of messages remaining in the buffer, or -1 if no message
+ *          was read.  The function returns -1 also on error.
+ */
 int64_t quicksand_read(quicksand_connection *connection, uint8_t *message,
-		       int64_t *message_size);
+                       int64_t *message_size);
 
-/// Timing functions
+/* -------------------------------------------------------------------------- */
+/* Timing functions                                                         */
+/* -------------------------------------------------------------------------- */
 
-// Monotonic time stamp counter (rdtsc on x86_64)
-// Returns: current CPU timestamp counter
+/** @brief Monotonic timestamp counter (RDTSCP on x86_64).
+ *
+ *  @return Current CPU timestamp counter.
+ */
 uint64_t quicksand_now(void);
 
-// Computes elapsed nanoseconds since the start tick
-// Parameters:
-// stop_stamp: the last timestamp
-// start_stamp: the first timestamp
-// Returns: number of nanoseconds elapsed between two timestamps
+/** @brief Compute elapsed nanoseconds between two timestamps.
+ *
+ *  @param final_timestamp   Timestamp at the end of the interval.
+ *  @param initial_timestamp Timestamp at the beginning of the interval.
+ *
+ *  @return Number of nanoseconds elapsed between the two timestamps.
+ */
 double quicksand_ns(uint64_t final_timestamp, uint64_t initial_timestamp);
 
-// Calibrate the nanosecond timer by sleeping for the specified nanoseconds time
-// Parameters:
-// nanoseconds: amount of time to sleep while calibrating
-// Returns: number of nanoseconds per tick
+/** @brief Calibrate the nanosecond timer.
+ *
+ *  The function sleeps for the specified amount of nanoseconds while
+ *  measuring the CPU ticks to determine the conversion factor from ticks
+ *  to nanoseconds.
+ *
+ *  @param nanoseconds Amount of time to sleep during calibration.
+ *
+ *  @return Number of nanoseconds per tick.
+ */
 double quicksand_ns_calibrate(double nanoseconds);
 
-// Sleep for the specified number of nanoseconds.
-// Busy loops for times less than 100 microseconds.
-// Parameters:
-// nanoseconds: amount of time to sleep or busy-loop
+/** @brief Busy‑wait or sleep for the specified number of nanoseconds.
+ *
+ *  For durations less than 100 µs a busy loop is used; otherwise the
+ *  function yields to the scheduler.
+ *
+ *  @param nanoseconds Amount of time to sleep or busy‑loop.
+ */
 void quicksand_sleep(double nanoseconds);
 
-/// Return elapsed time
+/* -------------------------------------------------------------------------- */
+/* Convenience inline helpers                                               */
+/* -------------------------------------------------------------------------- */
+
+/** @brief Return the elapsed time in nanoseconds since @p initial_timestamp.
+ *
+ *  @param initial_timestamp Start timestamp.
+ *
+ *  @return Elapsed nanoseconds.
+ */
 inline double quicksand_elapsed(uint64_t initial_timestamp) {
-	return quicksand_ns(quicksand_now(), initial_timestamp);
+    return quicksand_ns(quicksand_now(), initial_timestamp);
 }
 
-// Return number of remaining messages
+/** @brief Return the number of remaining messages in the buffer.
+ *
+ *  @param connection Connection object.
+ *
+ *  @return Number of unread messages.
+ */
 inline uint64_t quicksand_read_remaining(quicksand_connection *connection) {
-	return connection->read_index - connection->buffer->index;
+    return connection->read_index - connection->buffer->index;
 }
 
-// Return latest message if new messages are available.
+/** @brief Read the most recent message if new messages are available.
+ *
+ *  If there are newer messages, this function updates @p read_index to the
+ *  latest slot and reads that message.
+ *
+ *  @param connection   Connection object.
+ *  @param message      Buffer to receive the message.
+ *  @param message_size (IN/OUT) Maximum size to read; overwritten with the
+ *                      number of bytes actually read.
+ *
+ *  @return Result of @c quicksand_read, or -1 if no new messages were
+ *          available.
+ */
 inline int64_t quicksand_read_latest(quicksand_connection *connection,
-				     uint8_t *message, int64_t *message_size) {
-	// Return last message if new messages are available
-	if(connection->read_index < connection->buffer->index) {
-		connection->read_index = connection->buffer->index - 1;
-		return quicksand_read(connection, message, message_size);
-	}
-	return -1;
+                                     uint8_t *message, int64_t *message_size) {
+    /* Return last message if new messages are available */
+    if (connection->read_index < connection->buffer->index) {
+        connection->read_index = connection->buffer->index - 1;
+        return quicksand_read(connection, message, message_size);
+    }
+    return -1;
 }
-
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* QUICKSAND_H */
