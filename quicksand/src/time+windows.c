@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------
-// time+windows.c – Windows timing implementation
+// time+windows.c - Windows timing implementation
 // -----------------------------------------------------------------------
 
 #define _CRT_SECURE_NO_WARNINGS

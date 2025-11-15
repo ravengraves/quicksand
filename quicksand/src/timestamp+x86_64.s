@@ -10,7 +10,7 @@
 quicksand_now:
 	rdtsc            # RDX:RAX <- TSC
 	shlq $32, %rdx   # shift upper 32 bits into RDX
-	orq  %rdx, %rax  # combine them -> 64‑bit value in RAX
+	orq  %rdx, %rax  # combine them -> 64-bit value in RAX
 	ret
 
 	.size   quicksand_now, .-quicksand_now

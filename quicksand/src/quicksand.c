@@ -1,15 +1,15 @@
 // -------------------------------------------------------------------------
-// quicksand.c – implementation of the public API
+// quicksand.c - implementation of the public API
 // -------------------------------------------------------------------------
 //
 // The implementation follows the algorithm that was used in the old
-// “ravenring” code.  The only differences are:
+// "ravenring" code.  The only differences are:
 //   •  the names of the structs and functions,
 //   •  the way we obtain the allocator (malloc() by default),
 //   •  a small amount of defensive checking for the new API.
 //
 // Everything else (slot reservation, cursor checking, timeout handling,
-// padding to cache‑line boundaries, storing the payload size in the first
+// padding to cache-line boundaries, storing the payload size in the first
 // eight bytes of a slot) is kept 100% compatible.
 // -------------------------------------------------------------------------
 
@@ -76,7 +76,7 @@ static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n)
 }
 
 // ---------------------------------------------------------------------
-// Helper – round a number up to a multiple of 64 (cache line)
+// Helper - round a number up to a multiple of 64 (cache line)
 // ---------------------------------------------------------------------
 static inline i64 round_to_64(i64 v) {
 	i64 rem = v & 63;
@@ -84,7 +84,7 @@ static inline i64 round_to_64(i64 v) {
 }
 
 // ---------------------------------------------------------------------
-// Helper – round a number up to a power of two
+// Helper - round a number up to a power of two
 // ---------------------------------------------------------------------
 static inline i64 round_to_pow2(i64 v) {
 	i64 res = 1;
@@ -95,7 +95,7 @@ static inline i64 round_to_pow2(i64 v) {
 }
 
 // ---------------------------------------------------------------------
-// Helper – copy the topic name (null terminated) into the 256‑word
+// Helper - copy the topic name (null terminated) into the 256-word
 //           array that lives inside quicksand_connection.
 // ---------------------------------------------------------------------
 static inline void copy_topic_to_name(quicksand_connection *c, const char *topic,
@@ -110,7 +110,7 @@ static inline void copy_topic_to_name(quicksand_connection *c, const char *topic
 }
 
 // ---------------------------------------------------------------------
-// quicksand_connect – create or attach to an existing shm segment
+// quicksand_connect - create or attach to an existing shm segment
 // ---------------------------------------------------------------------
 i64 quicksand_connect(quicksand_connection **out, char *topic,
 		      i64 topic_length, i64 message_size,
@@ -126,7 +126,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	}
 
 	// ---------------------------------------------------------------
-	// Allocation – fall back to malloc() if the caller gave us NULL.
+	// Allocation - fall back to malloc() if the caller gave us NULL.
 	// ---------------------------------------------------------------
 	void *(*allocate)(size_t) = malloc;
 	if(alloc) {
@@ -134,11 +134,11 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	}
 
 	// ---------------------------------------------------------------
-	// Build a null‑terminated C string from the caller‑supplied name.
+	// Build a null-terminated C string from the caller-supplied name.
 	// ---------------------------------------------------------------
 	char name_buf[256] = {0};
 	if(topic_length == -1) {
-		// -1 means “use strlen()”.  The original code behaved the same.
+		// -1 means "use strlen()".  The original code behaved the same.
 		snprintf(name_buf, sizeof(name_buf), "%s", topic);
 	} else {
 		snprintf(name_buf, sizeof(name_buf), "%.*s", (int) topic_length,
@@ -174,7 +174,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 
 		quicksand_ringbuffer *rb = (quicksand_ringbuffer *) addr;
 
-		// sanity‑check the meta‑data
+		// sanity-check the meta-data
 		if(rb->length > (u64) 1e12 || rb->message_size >= (u64) 1e12) {
 			munmap(addr, (size_t) sb.st_size);
 			close(fd);
@@ -191,7 +191,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 			return -ENOMEM;
 		}
 
-		// Fill the user‑supplied connection object
+		// Fill the user-supplied connection object
 		(*out)->read_stamp = quicksand_now();
 		(*out)->read_index = 0;
 		(*out)->shared_memory_handle = (u64) fd;
@@ -204,16 +204,16 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// ---------------------------------------------------------------
 	// Otherwise we need to create a new ring buffer (or connect to an
 	// already existing one).  First try O_EXCL to see if it already
-	// exists – if it does, fall back to plain O_RDWR.
+	// exists - if it does, fall back to plain O_RDWR.
 	// ---------------------------------------------------------------
 
 	// ---------------------------------------------------------------
 	// Compute the total size of the segment.
 	//
-	//   data_offset = round_up(sizeof(quicksand_ringbuffer)) to 64‑byte
-	//   padded_message = round_up(8 + message_size)   // we keep the 8‑byte
+	//   data_offset = round_up(sizeof(quicksand_ringbuffer)) to 64-byte
+	//   padded_message = round_up(8 + message_size)   // we keep the 8-byte
 	//           // header that stores the actual payload size
-	//   payload_area  = padded_message * message_rate   // 1‑second worth
+	//   payload_area  = padded_message * message_rate   // 1-second worth
 	//   shm_size      = data_offset + payload_area
 	// ---------------------------------------------------------------
 	i64 data_offset = round_to_64((i64) sizeof(quicksand_ringbuffer));
@@ -270,8 +270,8 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	}
 
 	// -----------------------------------------------------------------
-	// Initialise the meta‑data.  The original code stored the length as
-	// a power‑of‑two (so that modulo can be replaced by & (len‑1)).
+	// Initialise the meta-data.  The original code stored the length as
+	// a power-of-two (so that modulo can be replaced by & (len-1)).
 	// -----------------------------------------------------------------
 	quicksand_ringbuffer *rb = (quicksand_ringbuffer *) addr;
 	if(!already_exists) {
@@ -297,7 +297,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		return -ENOMEM;
 	}
 
-	// Fill the user‑supplied connection object
+	// Fill the user-supplied connection object
 	((*out)->read_stamp) = quicksand_now();
 	((*out)->read_index) = 0;
 	((*out)->shared_memory_handle) = (u64) fd;
@@ -309,7 +309,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 }
 
 // ---------------------------------------------------------------------
-// quicksand_disconnect – undo everything done in quicksand_connect
+// quicksand_disconnect - undo everything done in quicksand_connect
 // ---------------------------------------------------------------------
 void quicksand_disconnect(quicksand_connection **c, void *dealloc) {
 	if(!(*c)) {
@@ -337,7 +337,7 @@ void quicksand_disconnect(quicksand_connection **c, void *dealloc) {
 void quicksand_delete(char *topic, i64 topic_length) {
 	char name_buf[256] = {0};
 	if(topic_length == -1) {
-		// -1 means “use strlen()”.  The original code behaved the same.
+		// -1 means "use strlen()".  The original code behaved the same.
 		snprintf(name_buf, sizeof(name_buf), "%s", topic);
 	} else {
 		snprintf(name_buf, sizeof(name_buf), "%.*s", (int) topic_length,
@@ -379,7 +379,7 @@ static i64 _quicksand_unlock(quicksand_ringbuffer *ring, u64 locktime) {
 
 
 // ---------------------------------------------------------------------
-// quicksand_write – put a new payload into the ring buffer
+// quicksand_write - put a new payload into the ring buffer
 // ---------------------------------------------------------------------
 i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	u64 start_time = quicksand_now();
@@ -404,7 +404,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	}
 
 	// -----------------------------------------------------------------
-	// 1. Reserve a slot (atomic fetch‑add)
+	// 1. Reserve a slot (atomic fetch-add)
 	// -----------------------------------------------------------------
 	u64 my_reserve = atomic_load_explicit(&rb->reserve, memory_order_relaxed);
 	while(!atomic_compare_exchange_weak_explicit(&rb->reserve, &my_reserve,
@@ -454,7 +454,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 }
 
 // ---------------------------------------------------------------------
-// quicksand_read – fetch the next available payload, if any
+// quicksand_read - fetch the next available payload, if any
 // ---------------------------------------------------------------------
 i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	if(!c || !msg || !msg_len) {
@@ -484,15 +484,15 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	u64 now = quicksand_now();
 	if(c->read_index == write_cursor) {
 		// printf("read index at limit\n");
-		// No new message – consumer is caught up
+		// No new message - consumer is caught up
 		c->read_stamp = now;
-		return -1; // “0 messages read”
+		return -1; // "0 messages read"
 	}
 
 	// -----------------------------------------------------------------
 	// 3. The writer may have advanced *many* slots ahead.  If the distance
-	//    is larger than half the ring we clamp the “oldest readable” slot
-	//    to (write_cursor‑1).
+	//    is larger than half the ring we clamp the "oldest readable" slot
+	//    to (write_cursor-1).
 	// -----------------------------------------------------------------
 	u64 distance = write_cursor - c->read_index;
 	f64 time_delta = quicksand_ns(rb->updatestamp, c->read_stamp);
@@ -520,7 +520,7 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	// u64 payload_stamp = *((u64 *) slot_ptr); // unused
 	i64 payload_len = *((i64 *) (slot_ptr + 8));
 	if(payload_len < 0 || payload_len > ((i64) rb->message_size) - 16) {
-		// Corrupted size – treat as no‑data
+		// Corrupted size - treat as no-data
 		return -EBADMSG;
 	}
 

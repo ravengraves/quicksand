@@ -1,6 +1,6 @@
 # quicksand/quicksand.py
 # ----------------------
-# Public, user‑friendly wrapper around the low‑level Quicksand C module.
+# Public, user-friendly wrapper around the low-level Quicksand C module.
 # --------------------------------------------------------------------------
 
 import os
@@ -13,7 +13,7 @@ class QuicksandError(RuntimeError):
 
 class Connection:
     """
-    High‑level Python class for the quicksand API.
+    High-level Python class for the quicksand API.
     """
 
     def __init__(self, topic: str,
@@ -112,7 +112,7 @@ def delete(topic: str) -> None:
 
 
 def now() -> int:
-    """Raw monotonic timestamp (raw TSC on x86‑64)."""
+    """Raw monotonic timestamp (raw TSC on x86-64)."""
     return _c.now()
 
 
@@ -127,5 +127,5 @@ def ns_elapsed(start: int) -> float:
 
 
 def sleep(ns: float) -> None:
-    """Busy‑wait or sleep for the requested nanoseconds."""
+    """Busy-wait or sleep for the requested nanoseconds."""
     _c.sleep(ns)

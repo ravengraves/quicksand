@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------
-// time+darwin.c – macOS timing implementation
+// time+darwin.c - macOS timing implementation
 // -----------------------------------------------------------------------
 
 #define _POSIX_C_SOURCE 200809L

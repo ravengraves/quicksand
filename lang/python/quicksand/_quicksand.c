@@ -1,4 +1,4 @@
-/*  quicksand/_quicksand.c – thin C wrapper for libquicksand.so
+/*  quicksand/_quicksand.c - thin C wrapper for libquicksand.so
  *
  *  Purpose
  *  --------
@@ -62,7 +62,7 @@ load_symbol(const char *sym, void **ptr) {
 
 static PyObject *
 capsule_from_conn(quicksand_connection *conn) {
-	/* No destructor – we explicitly disconnect from Python side. */
+	/* No destructor - we explicitly disconnect from Python side. */
 	return PyCapsule_New((void *) conn,
 			     "quicksand_connection",
 			     NULL);
@@ -70,7 +70,7 @@ capsule_from_conn(quicksand_connection *conn) {
 
 /* -------------------- 4.  Python exposed API -------------------------------*/
 
-/* 4.  Connect – correct kwlist and format string */
+/* 4.  Connect - correct kwlist and format string */
 static PyObject *
 py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds) {
 	static const char *kwlist[] = {"topic",
@@ -79,7 +79,7 @@ py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds) {
 				       NULL};
 
 	const char *topic;
-	Py_ssize_t topic_len = -1; /* will stay -1 (NUL‑terminated) */
+	Py_ssize_t topic_len = -1; /* will stay -1 (NUL-terminated) */
 	int64_t msg_sz = -1,
 		msg_rate = -1;
 	quicksand_connection *conn = NULL;
@@ -114,7 +114,7 @@ py_quicksand_delete(PyObject *self, PyObject *args, PyObject *kwds) {
 	static const char *kwlist[] = {"topic", NULL};
 
 	const char *topic;
-	Py_ssize_t topic_len = -1; /* will stay -1 (NUL‑terminated) */
+	Py_ssize_t topic_len = -1; /* will stay -1 (NUL-terminated) */
 
 	if(!PyArg_ParseTupleAndKeywords(args, kwds,
 					"s|", kwlist,
@@ -174,7 +174,7 @@ py_quicksand_write(PyObject *self, PyObject *args) {
 		return NULL;
 	}
 
-	/* Release the GIL – the C call can block */
+	/* Release the GIL - the C call can block */
 	rc = p_quicksand_write(conn,
 			       (uint8_t *) view.buf,
 			       (int64_t) view.len);
@@ -214,7 +214,7 @@ _py_quicksand_read(PyObject *self, PyObject *args, int latest) {
 		return NULL;
 	}
 
-	/* Request a mutable view – the caller must supply something writable */
+	/* Request a mutable view - the caller must supply something writable */
 	if(PyObject_GetBuffer(buf_obj, &view,
 			      PyBUF_WRITABLE | PyBUF_SIMPLE)
 	   < 0) {
@@ -247,9 +247,9 @@ _py_quicksand_read(PyObject *self, PyObject *args, int latest) {
 	PyBuffer_Release(&view);
 
 	/* The library uses rc to indicate:
-         rc > 0  – remaining messages in the ring.
-         rc == -1 – no message was available at the moment
-         rc < -1  – actual error code  */
+         rc > 0  - remaining messages in the ring.
+         rc == -1 - no message was available at the moment
+         rc < -1  - actual error code  */
 	if(rc < 0) {
 		if(rc == -1) {
 			Py_RETURN_NONE;
@@ -264,7 +264,7 @@ _py_quicksand_read(PyObject *self, PyObject *args, int latest) {
 
 	/* `msg_sz` now contains how many bytes actually surface.  Slice the
        caller's buffer into a new `bytearray` that contains exactly those
-       bytes.  We purposely avoid copying the full buffer – only the
+       bytes.  We purposely avoid copying the full buffer - only the
        consumable part. */
 	PyObject *payload = PyByteArray_FromStringAndSize(
 			(char *) view.buf,
@@ -366,7 +366,7 @@ static PyMethodDef QuickSandMethods[] = {
 		{"delete", py_quicksand_delete,
 		 METH_VARARGS | METH_KEYWORDS, "Remove a shared memory buffer for future connections."},
 		{"write", py_quicksand_write,
-		 METH_VARARGS, "Write a bytes‑like object to the ring buffer."},
+		 METH_VARARGS, "Write a bytes-like object to the ring buffer."},
 		{"read", py_quicksand_read,
 		 METH_VARARGS, "Read a message into a mutable buffer, returning (msg, remaining)."},
 		{"read_latest", py_quicksand_read_latest,
@@ -389,7 +389,7 @@ static struct PyModuleDef quicksandmodule = {
 		PyModuleDef_HEAD_INIT,
 		"quicksand._quicksand",		      /* full name */
 		"Thin C wrapper for libquicksand.so", /* doc */
-		-1,				      /* per‑interpreter state */
+		-1,				      /* per-interpreter state */
 		QuickSandMethods,
 		NULL, NULL, NULL, NULL};
 
@@ -403,11 +403,6 @@ PyInit__quicksand(void) {
 	}
 
 	/* Resolve the shared library as a sibling of the wrapper */
-	/* Build the runtime path:  <pkg>/quicksand/_quicksand.so -> <pkg>/libquicksand.so */
-	/* We compute it relative to the directory of the built module. */
-	PyObject *module_path = PyUnicode_FromString(__FILE__);
-	/* __FILE__ points at /path/to/quicksand/_quicksand.c – we need "/"->"../libquicksand.so";
-       but the relative path here is sufficient for a typical build layout. */
 	const char *so_path = "libquicksand.so";
 	lib_handle = dlopen(so_path, RTLD_NOW | RTLD_LOCAL);
 	if(!lib_handle) {

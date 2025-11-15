@@ -10,8 +10,8 @@ from setuptools import setup, Extension, find_packages
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # -----------------------------------------------------------------
-# The compiled extension – note that we *do not* compile the library
-# itself, we only link against the pre‑built .so.
+# The compiled extension - note that we *do not* compile the library
+# itself, we only link against the pre-built .so.
 # -----------------------------------------------------------------
 _quicksand_ext = Extension(
     name="quicksand._quicksand",
