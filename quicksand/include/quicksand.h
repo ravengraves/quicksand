@@ -157,6 +157,8 @@ int64_t quicksand_write(quicksand_connection *connection, uint8_t *message,
  *  is available, it copies up to @p *message_size bytes into the provided
  *  buffer and updates @p *message_size with the number of bytes actually
  *  read.
+ *  If the writer is > 50% of the ring length past the reader, or > timeout
+ *  has elapsed since the last read, this will only read the last message.
  *
  *  @param connection   Initialized @c quicksand_connection.
  *  @param message      Buffer to receive the message.
