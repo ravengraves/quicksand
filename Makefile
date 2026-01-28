@@ -13,48 +13,76 @@ PREFIX?=/usr/local
 # LDFLAGS := -flto -fsanitize=address,undefined
 # CEXE := -fuse-ld=lld
 
-# Release flags
-CFLAGS := -Wall -Wextra -Wpedantic -Werror -std=c11 -fPIC -flto \
+# Base flags without LTO
+CFLAGS_BASE := -Wall -Wextra -Wpedantic -Werror -std=c11 -fPIC \
 	-fno-stack-protector -D_FORTIFY_SOURCE=0 \
 	-ffunction-sections -fdata-sections \
 	-I quicksand/include -O3 -ffast-math -mtune=native
+
+# LTO flags for static library only (executable linking)
+CFLAGS_LTO := $(CFLAGS_BASE) -flto
+
+# Non-LTO for shared library (Python/dlopen compatibility)
+CFLAGS_SO := $(CFLAGS_BASE)
+
+# Legacy CFLAGS for tests (with LTO)
+CFLAGS := $(CFLAGS_LTO)
+
 CEXE := -fuse-ld=lld -Wl,-gc-sections,-icf=safe,-s
 LDFLAGS := -fuse-ld=lld
 
 ifeq ($(ARCH),x86_64)
+	CFLAGS_BASE += -march=native
+	CFLAGS_LTO += -march=native
+	CFLAGS_SO += -march=native
 	CFLAGS += -march=native
 endif
 
 ifeq ($(ARCH),aarch64)
+	CFLAGS_BASE += -march=armv8-a
+	CFLAGS_LTO += -march=armv8-a
+	CFLAGS_SO += -march=armv8-a
 	CFLAGS += -march=armv8-a
 endif
 
 all: build/libquicksand.so build/libquicksand.a
 
-build/libquicksand.so: build/quicksand_now.o build/quicksand_time.o build/quicksand.o
+# Shared library - no LTO for Python/dlopen compatibility
+build/libquicksand.so: build/quicksand_now.o build/quicksand_time_so.o build/quicksand_so.o
 	$(CC) -shared -o build/libquicksand.so \
 		build/quicksand_now.o \
-		build/quicksand_time.o \
-		build/quicksand.o \
+		build/quicksand_time_so.o \
+		build/quicksand_so.o \
 		$(LDFLAGS)
 
-build/libquicksand.a: build/quicksand_now.o build/quicksand_time.o build/quicksand.o
+# Static library - with LTO for best performance in C programs
+build/libquicksand.a: build/quicksand_now.o build/quicksand_time_lto.o build/quicksand_lto.o
 	$(AR) rcs build/libquicksand.a \
 		build/quicksand_now.o \
-		build/quicksand_time.o \
-		build/quicksand.o
+		build/quicksand_time_lto.o \
+		build/quicksand_lto.o
 
 build/quicksand_now.o: quicksand/src/timestamp+$(ARCH).s
 	mkdir -p build
 	$(CC) -c -o build/quicksand_now.o -fPIC quicksand/src/timestamp+$(ARCH).s
 
-build/quicksand_time.o: quicksand/src/time.c
+# Non-LTO objects for shared library
+build/quicksand_time_so.o: quicksand/src/time.c
 	mkdir -p build
-	$(CC) -c -o build/quicksand_time.o $(CFLAGS) quicksand/src/time.c
+	$(CC) -c -o build/quicksand_time_so.o $(CFLAGS_SO) quicksand/src/time.c
 
-build/quicksand.o: quicksand/src/quicksand.c
+build/quicksand_so.o: quicksand/src/quicksand.c
 	mkdir -p build
-	$(CC) -c -o build/quicksand.o $(CFLAGS) quicksand/src/quicksand.c
+	$(CC) -c -o build/quicksand_so.o $(CFLAGS_SO) quicksand/src/quicksand.c
+
+# LTO objects for static library
+build/quicksand_time_lto.o: quicksand/src/time.c
+	mkdir -p build
+	$(CC) -c -o build/quicksand_time_lto.o $(CFLAGS_LTO) quicksand/src/time.c
+
+build/quicksand_lto.o: quicksand/src/quicksand.c
+	mkdir -p build
+	$(CC) -c -o build/quicksand_lto.o $(CFLAGS_LTO) quicksand/src/quicksand.c
 
 
 ### TESTS ###
