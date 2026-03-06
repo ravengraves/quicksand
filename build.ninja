@@ -4,6 +4,8 @@ cflags = -O2 -g -Wall -Wextra -std=c11 -fPIC
 cppflags = -Iinclude
 ldflags =
 ldlibs = -lm
+package_version = 1.0.0
+scdoc = scdoc
 
 rule mkdir
   command = mkdir -p $out
@@ -30,6 +32,27 @@ rule link_exe
 rule run_check
   command = ./build/test/basic && ./build/test/time && touch $out
 
+rule copy_docs
+  command = mkdir -p build/doc && cp $in build/doc/ && touch $out
+
+rule scdoc
+  command = mkdir -p `dirname $out` && $scdoc < $in > $out
+
+rule gen_pc
+  command = sed -e 's|@PREFIX@|$${PREFIX:-/usr/local}|g' -e 's|@LIBDIR@|$${LIBDIR:-$${PREFIX:-/usr/local}/lib}|g' -e 's|@INCLUDEDIR@|$${INCLUDEDIR:-$${PREFIX:-/usr/local}/include}|g' -e 's|@VERSION@|$package_version|g' $in > $out
+
+rule install_lib
+  command = prefix=$${PREFIX:-/usr/local}; dest=$${DESTDIR:-}; install -d $$dest$$prefix/lib $$dest$$prefix/include $$dest$$prefix/lib/pkgconfig && install -m 0644 build/libquicksand.so $$dest$$prefix/lib/ && install -m 0644 build/libquicksand.a $$dest$$prefix/lib/ && install -m 0644 include/quicksand.h $$dest$$prefix/include/ && install -m 0644 include/quicksand_style.h $$dest$$prefix/include/ && install -m 0644 build/quicksand.pc $$dest$$prefix/lib/pkgconfig/ && touch $out
+
+rule install_docs
+  command = prefix=$${PREFIX:-/usr/local}; dest=$${DESTDIR:-}; install -d $$dest$$prefix/share/doc/quicksand $$dest$$prefix/share/man/man3 && install -m 0644 doc/*.md $$dest$$prefix/share/doc/quicksand/ && install -m 0644 build/doc/quicksand.3 $$dest$$prefix/share/man/man3/ && touch $out
+
+rule uninstall_lib
+  command = prefix=$${PREFIX:-/usr/local}; dest=$${DESTDIR:-}; rm -f $$dest$$prefix/lib/libquicksand.so $$dest$$prefix/lib/libquicksand.a $$dest$$prefix/include/quicksand.h $$dest$$prefix/include/quicksand_style.h $$dest$$prefix/lib/pkgconfig/quicksand.pc && touch $out
+
+rule uninstall_docs
+  command = prefix=$${PREFIX:-/usr/local}; dest=$${DESTDIR:-}; rm -f $$dest$$prefix/share/doc/quicksand/*.md $$dest$$prefix/share/man/man3/quicksand.3; rmdir $$dest$$prefix/share/doc/quicksand 2>/dev/null || true; touch $out
+
 rule do_clean
   command = rm -rf build && rm -f $out
 
@@ -48,12 +71,26 @@ build build/test/time: link_exe test/test_time.c build/libquicksand.a | build/te
 build build/test/pub: link_exe test/test_pub.c build/libquicksand.a | build/test
 build build/test/sub: link_exe test/test_sub.c build/libquicksand.a | build/test
 
+build build/doc/.stamp: copy_docs doc/README.md doc/windows-mingw.md
+build build/doc/quicksand.3: scdoc doc/quicksand.3.scd
+build build/quicksand.pc: gen_pc doc/quicksand.pc.in
+
 build build/.check.stamp: run_check | build/test/basic build/test/time
+build build/.install_lib.stamp: install_lib | build/libquicksand.so build/libquicksand.a build/quicksand.pc
+build build/.install_docs.stamp: install_docs | build/doc/.stamp build/doc/quicksand.3
+build build/.uninstall_lib.stamp: uninstall_lib
+build build/.uninstall_docs.stamp: uninstall_docs
 build .ninja-clean.stamp: do_clean
 
-build all: phony build/libquicksand.so build/libquicksand.a
-build test: phony build/test/basic build/test/time build/test/pub build/test/sub
+build all: phony build/libquicksand.so build/libquicksand.a build/test/basic build/test/time build/test/pub build/test/sub
 build check: phony build/.check.stamp
 build clean: phony .ninja-clean.stamp
+build docs: phony build/doc/.stamp build/doc/quicksand.3
+build install-lib: phony build/.install_lib.stamp
+build install-docs: phony build/.install_docs.stamp
+build install: phony build/.install_lib.stamp build/.install_docs.stamp
+build uninstall-lib: phony build/.uninstall_lib.stamp
+build uninstall-docs: phony build/.uninstall_docs.stamp
+build uninstall: phony build/.uninstall_lib.stamp build/.uninstall_docs.stamp
 
 default all

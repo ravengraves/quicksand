@@ -1,0 +1,9 @@
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: quicksand
+Description: Lock-free shared-memory ringbuffer communication library
+Version: @VERSION@
+Libs: -L${libdir} -lquicksand
+Cflags: -I${includedir}

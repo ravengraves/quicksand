@@ -3,7 +3,7 @@
 // -----------------------------------------------------------------------
 
 #define _CRT_SECURE_NO_WARNINGS
-#include <Windows.h>
+#include <windows.h>
 #include <math.h>
 
 #include "quicksand.h"
@@ -33,7 +33,7 @@ f64 quicksand_ns(u64 final_timestamp, u64 initial_timestamp) {
 
 
 // Calibrate conversion from timestamp counters to nanoseconds
-void quicksand_ns_calibrate(f64 nanoseconds) {
+f64 quicksand_ns_calibrate(f64 nanoseconds) {
 	// Save the start time
 	LARGE_INTEGER freq, start_qpc, stop_qpc, stop_qpc_2;
 	QueryPerformanceFrequency(&freq);
@@ -41,10 +41,6 @@ void quicksand_ns_calibrate(f64 nanoseconds) {
 	u64 start_tick = quicksand_now();
 
 	// Sleep for the calibration time.
-	f64 sf = floor(nanoseconds * 1e-9);
-	u64 s = (u64) sf;
-	u64 ns = (u64) (nanoseconds - sf * 1e9);
-
 	// Convert to milliseconds for Sleep()
 	DWORD sleep_ms = (DWORD) (nanoseconds / 1e6);
 	if(sleep_ms > 0) {
@@ -77,6 +73,7 @@ void quicksand_ns_calibrate(f64 nanoseconds) {
 	// Update the calibration value
 	NS_PER_TICK = (f64) elapsed_ns / (f64) elapsed_ticks;
 	TICK_PER_NS = (f64) elapsed_ticks / (f64) elapsed_ns;
+	return NS_PER_TICK;
 }
 
 void quicksand_sleep(f64 nanoseconds) {
