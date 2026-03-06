@@ -14,3 +14,5 @@ quicksand_now:
 	ret
 
 	.size   quicksand_now, .-quicksand_now
+
+	.section .note.GNU-stack,"",@progbits

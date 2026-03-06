@@ -1,5 +1,5 @@
 # Assemble -> object file
-# as   -o quicksand_now.o quicksand_now.s  # or  gcc -c -fPIC
+# as   -o quicksand_now.o quicksand_now.s          # or  gcc -c -fPIC
 # gcc -shared -o libquicksand_now.so quicksand_now.o
 
 	.section .text
@@ -8,7 +8,9 @@
 	.p2align 2
 
 quicksand_now:
-	rdcycle      a0
-	ret
+	MRS     x0, CNTVCT_EL0
+	RET
 
 	.size   quicksand_now, .-quicksand_now
+
+	.section .note.GNU-stack,"",@progbits
