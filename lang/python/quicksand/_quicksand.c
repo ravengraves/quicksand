@@ -1,8 +1,8 @@
-/*  quicksand/_quicksand.c - thin C wrapper for libquicksand.so
+/*  quicksand/_quicksand.c - thin C wrapper for the Quicksand shared library
  *
  *  Purpose
  *  --------
- *  • Load the symbols from libquicksand.so at import time
+ *  • Load the Quicksand shared library at import time
  *  • Expose those functions to Python with proper argument/return
  *    conversion
  *  • Keep the GIL released while the library runs
@@ -16,12 +16,19 @@
 #define PY_SSIZE_T_CLEAN
 
 #include <Python.h>
-#include <dlfcn.h>
 #include <inttypes.h> /* for PRIu64 */
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <stdio.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "quicksand.h" /* struct definitions */
 
@@ -41,17 +48,164 @@ static int64_t (*p_quicksand_read)(quicksand_connection *,
 				   uint8_t *, int64_t *) = NULL;
 static uint64_t (*p_quicksand_now)(void) = NULL;
 static double (*p_quicksand_ns)(uint64_t, uint64_t) = NULL;
-static void (*p_quicksand_ns_calibrate)(double) = NULL;
+static double (*p_quicksand_ns_calibrate)(double) = NULL;
 static void (*p_quicksand_sleep)(double) = NULL;
+
+#ifdef _WIN32
+static void *
+open_library(const char *path) {
+	return (void *) LoadLibraryA(path);
+}
+
+static void *
+lookup_symbol(const char *sym) {
+	return (void *) GetProcAddress((HMODULE) lib_handle, sym);
+}
+
+static void
+get_loader_error(char *buf, size_t buf_size) {
+	DWORD code = GetLastError();
+
+	if(!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM
+			   | FORMAT_MESSAGE_IGNORE_INSERTS,
+			   NULL,
+			   code,
+			   0,
+			   buf,
+			   (DWORD) buf_size,
+			   NULL)) {
+		snprintf(buf, buf_size, "Windows loader error %lu",
+			 (unsigned long) code);
+	}
+}
+#else
+static void *
+open_library(const char *path) {
+	return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+}
+
+static void *
+lookup_symbol(const char *sym) {
+	return dlsym(lib_handle, sym);
+}
+
+static void
+get_loader_error(char *buf, size_t buf_size) {
+	const char *err = dlerror();
+
+	if(!err) {
+		err = "unknown dynamic loader error";
+	}
+	snprintf(buf, buf_size, "%s", err);
+}
+#endif
+
+static int
+build_sibling_path(PyObject *module, const char *lib_name,
+		   char *buf, size_t buf_size) {
+	PyObject *filename = NULL;
+	PyObject *fs_path = NULL;
+	const char *path = NULL;
+	const char *slash = NULL;
+	size_t dir_len = 0;
+
+	filename = PyModule_GetFilenameObject(module);
+	if(!filename) {
+		return -1;
+	}
+
+	fs_path = PyUnicode_EncodeFSDefault(filename);
+	Py_DECREF(filename);
+	if(!fs_path) {
+		return -1;
+	}
+
+	path = PyBytes_AsString(fs_path);
+	if(!path) {
+		Py_DECREF(fs_path);
+		return -1;
+	}
+
+	slash = strrchr(path, '/');
+#ifdef _WIN32
+	{
+		const char *backslash = strrchr(path, '\\');
+		if(backslash && (!slash || backslash > slash)) {
+			slash = backslash;
+		}
+	}
+#endif
+
+	if(!slash) {
+		Py_DECREF(fs_path);
+		return -1;
+	}
+
+	dir_len = (size_t) (slash - path);
+	if(dir_len + 1 + strlen(lib_name) + 1 > buf_size) {
+		Py_DECREF(fs_path);
+		return -1;
+	}
+
+	memcpy(buf, path, dir_len);
+	buf[dir_len] = '/';
+	snprintf(buf + dir_len + 1, buf_size - dir_len - 1, "%s", lib_name);
+	Py_DECREF(fs_path);
+	return 0;
+}
+
+static int
+load_quicksand_library(PyObject *module) {
+	static const char *const candidates[] = {
+#ifdef _WIN32
+		"libquicksand.dll",
+		"quicksand.dll",
+#elif defined(__APPLE__)
+		"libquicksand.dylib",
+		"libquicksand.so",
+#else
+		"libquicksand.so",
+#endif
+	};
+	char path_buf[4096];
+	char err_buf[512];
+	size_t i = 0;
+
+	for(i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+		if(build_sibling_path(module, candidates[i], path_buf,
+				      sizeof(path_buf)) == 0) {
+			lib_handle = open_library(path_buf);
+			if(lib_handle) {
+				return 0;
+			}
+		} else {
+			PyErr_Clear();
+		}
+
+		lib_handle = open_library(candidates[i]);
+		if(lib_handle) {
+			return 0;
+		}
+	}
+
+	get_loader_error(err_buf, sizeof(err_buf));
+	PyErr_Format(PyExc_RuntimeError,
+		     "Failed to load Quicksand shared library for this platform: %s",
+		     err_buf);
+	return -1;
+}
 
 /* ------------------------ 2.  load a single symbol -------------------------*/
 
 static int
 load_symbol(const char *sym, void **ptr) {
-	void *addr = dlsym(lib_handle, sym);
+	char err_buf[512];
+	void *addr = lookup_symbol(sym);
 	if(!addr) {
+		get_loader_error(err_buf, sizeof(err_buf));
 		PyErr_Format(PyExc_RuntimeError,
-			     "Failed to load symbol %s from libquicksand.so", sym);
+			     "Failed to load symbol %s from Quicksand shared library: %s",
+			     sym, err_buf);
 		return -1;
 	}
 	*ptr = addr;
@@ -73,10 +227,10 @@ capsule_from_conn(quicksand_connection *conn) {
 /* 4.  Connect - correct kwlist and format string */
 static PyObject *
 py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds) {
-	static const char *kwlist[] = {"topic",
-				       "message_size",
-				       "message_rate",
-				       NULL};
+	static char *kwlist[] = {"topic",
+				 "message_size",
+				 "message_rate",
+				 NULL};
 
 	const char *topic;
 	Py_ssize_t topic_len = -1; /* will stay -1 (NUL-terminated) */
@@ -111,7 +265,7 @@ py_quicksand_connect(PyObject *self, PyObject *args, PyObject *kwds) {
 
 static PyObject *
 py_quicksand_delete(PyObject *self, PyObject *args, PyObject *kwds) {
-	static const char *kwlist[] = {"topic", NULL};
+	static char *kwlist[] = {"topic", NULL};
 
 	const char *topic;
 	Py_ssize_t topic_len = -1; /* will stay -1 (NUL-terminated) */
@@ -358,12 +512,12 @@ py_quicksand_sleep(PyObject *self, PyObject *args) {
 /* --------------------5.  Module method table -------------------------------*/
 
 static PyMethodDef QuickSandMethods[] = {
-		{"connect", py_quicksand_connect,
+		{"connect", (PyCFunction) py_quicksand_connect,
 		 METH_VARARGS | METH_KEYWORDS,
 		 "Connect to a quicksand ring buffer and return a capsule."},
 		{"disconnect", py_quicksand_disconnect,
 		 METH_O, "Disconnect and free a connection capsule."},
-		{"delete", py_quicksand_delete,
+		{"delete", (PyCFunction) py_quicksand_delete,
 		 METH_VARARGS | METH_KEYWORDS, "Remove a shared memory buffer for future connections."},
 		{"write", py_quicksand_write,
 		 METH_VARARGS, "Write a bytes-like object to the ring buffer."},
@@ -388,7 +542,7 @@ static PyMethodDef QuickSandMethods[] = {
 static struct PyModuleDef quicksandmodule = {
 		PyModuleDef_HEAD_INIT,
 		"quicksand._quicksand",		      /* full name */
-		"Thin C wrapper for libquicksand.so", /* doc */
+		"Thin C wrapper for the Quicksand shared library", /* doc */
 		-1,				      /* per-interpreter state */
 		QuickSandMethods,
 		NULL, NULL, NULL, NULL};
@@ -402,44 +556,46 @@ PyInit__quicksand(void) {
 		return NULL;
 	}
 
-	/* Resolve the shared library as a sibling of the wrapper */
-	const char *so_path = "libquicksand.so";
-	lib_handle = dlopen(so_path, RTLD_NOW | RTLD_LOCAL);
-	if(!lib_handle) {
-		PyErr_SetString(PyExc_RuntimeError,
-				"Failed to load shared library libquicksand.so");
+	if(load_quicksand_library(m) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 
 	/* Resolve all required symbols and abort if any is missing. */
 	if(load_symbol("quicksand_connect", (void **) &p_quicksand_connect) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_disconnect", (void **) &p_quicksand_disconnect) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_delete", (void **) &p_quicksand_delete) < 0) {
-		return NULL;
-	}
-	if(load_symbol("quicksand_delete", (void **) &p_quicksand_delete) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_write", (void **) &p_quicksand_write) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_read", (void **) &p_quicksand_read) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_now", (void **) &p_quicksand_now) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_ns", (void **) &p_quicksand_ns) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_ns_calibrate", (void **) &p_quicksand_ns_calibrate) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 	if(load_symbol("quicksand_sleep", (void **) &p_quicksand_sleep) < 0) {
+		Py_DECREF(m);
 		return NULL;
 	}
 

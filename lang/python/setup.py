@@ -1,32 +1,26 @@
-# setup.py
-# ----------
-# Build script for the quicksand Python package.
-# Only works on linux for now.
-
 import os
+import sys
 from setuptools import setup, Extension, find_packages
 
-# Repo root
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-# -----------------------------------------------------------------
-# The compiled extension - note that we *do not* compile the library
-# itself, we only link against the pre-built .so.
-# -----------------------------------------------------------------
+extra_compile_args = ["-Os"]
+extra_link_args = []
+
+if sys.platform.startswith("linux"):
+    extra_compile_args.extend(["-flto", "-march=native", "-mtune=native"])
+    extra_link_args.append("-ldl")
+elif sys.platform == "darwin":
+    extra_compile_args.append("-flto")
+
 _quicksand_ext = Extension(
     name="quicksand._quicksand",
-    sources=["quicksand/_quicksand.c"],            # our thin wrapper
+    sources=["quicksand/_quicksand.c"],
     include_dirs=[os.path.join(ROOT, "include")],
-    library_dirs=[os.path.join(ROOT, "build")],
-    libraries=["quicksand"],                       # -> libquicksand.so
-    extra_link_args=["-ldl"],  # dl tools
-    # "-Wl,-rpath,$ORIGIN"],  # relative linking
-    extra_compile_args=["-Os", "-flto", "-march=native", "-mtune=native"],
+    extra_link_args=extra_link_args,
+    extra_compile_args=extra_compile_args,
 )
 
-# -----------------------------------------------------------------
-# The package metadata
-# -----------------------------------------------------------------
 setup(
     name="quicksand",
     version="1.0.0",
