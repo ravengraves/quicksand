@@ -1,6 +1,7 @@
 # Build
-build/
+build*/
 lib/
+.ninja_log
 
 # Clang
 compile_commands.json
