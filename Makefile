@@ -1,10 +1,18 @@
 CC ?= cc
 AR ?= ar
+NINJA ?= ninja
+CLANG ?= clang
+CLANG_TIDY ?= clang-tidy
+GCC_ANALYZER ?= gcc
 PREFIX ?= /usr/local
 DESTDIR ?=
 ARCH ?= $(shell uname -m)
 PACKAGE_VERSION ?= 1.0.0
 SCDOC ?= scdoc
+SANITIZERS ?= address,undefined
+SANITIZER_CFLAGS ?= -fsanitize=$(SANITIZERS) -fno-omit-frame-pointer
+SANITIZER_LDFLAGS ?= -fsanitize=$(SANITIZERS)
+SANITIZE_BUILD_DIR ?= build-sanitize
 
 BUILD_DIR := build
 DOC_DIR := doc
@@ -37,8 +45,10 @@ LIB_OBJECTS := $(BUILD_DIR)/quicksand.o $(BUILD_DIR)/time.o $(BUILD_DIR)/timesta
 
 TEST_SOURCES := test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
 TEST_BINS := $(patsubst test/test_%.c,$(BUILD_DIR)/test/%,$(TEST_SOURCES))
+ANALYZE_SOURCES := src/quicksand.c src/time.c $(TEST_SOURCES)
+TIMESTAMP_CFLAGS := $(filter-out $(SANITIZER_CFLAGS),$(CFLAGS))
 
-.PHONY: all test check clean docs install-lib install-docs install uninstall-lib uninstall-docs uninstall python
+.PHONY: all test check check-runtime check-analysis clean docs install-lib install-docs install uninstall-lib uninstall-docs uninstall python tidy clang-analyze fanalyzer sanitize-check analysis
 
 all: $(LIB_SHARED) $(LIB_STATIC) $(TEST_BINS)
 
@@ -55,7 +65,7 @@ $(BUILD_DIR)/%.o: src/%.c | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/timestamp.o: $(TIMESTAMP_SRC) | $(BUILD_DIR)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(TIMESTAMP_CFLAGS) -c $< -o $@
 
 $(LIB_SHARED): $(LIB_OBJECTS)
 	$(CC) -shared -o $@ $(LIB_OBJECTS) $(LDFLAGS) $(LDLIBS)
@@ -68,9 +78,50 @@ $(BUILD_DIR)/test/%: test/test_%.c $(LIB_STATIC) | $(BUILD_DIR)/test
 
 test: $(TEST_BINS)
 
-check: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
+check-runtime: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
 	./$(BUILD_DIR)/test/basic
 	./$(BUILD_DIR)/test/time
+
+check-analysis: compile_commands.json
+	@set +e; \
+	for target in tidy clang-analyze fanalyzer; do \
+		echo "== $$target (warnings only) =="; \
+		$(MAKE) --no-print-directory $$target || \
+			echo "$$target reported findings; continuing to sanitizer tests"; \
+	done
+
+check: check-analysis sanitize-check
+
+compile_commands.json: build.ninja
+	$(NINJA) -f $< -t compdb cc cc_timestamp link_exe > $@
+
+tidy: compile_commands.json
+	$(CLANG_TIDY) -quiet --extra-arg=-Wno-unused-command-line-argument -p . $(ANALYZE_SOURCES)
+
+clang-analyze:
+	set -e; \
+	for src in $(ANALYZE_SOURCES); do \
+		echo "CLANG-ANALYZE $$src"; \
+		$(CLANG) $(CPPFLAGS) $(CFLAGS) --analyze -Xanalyzer -analyzer-output=text $$src; \
+	done
+
+fanalyzer:
+	set -e; \
+	for src in $(ANALYZE_SOURCES); do \
+		echo "FANALYZER $$src"; \
+		$(GCC_ANALYZER) $(CPPFLAGS) $(CFLAGS) -fanalyzer -c $$src -o /dev/null; \
+	done
+
+sanitize-check:
+	rm -rf $(SANITIZE_BUILD_DIR)
+	ASAN_OPTIONS=detect_leaks=1:strict_init_order=1:check_initialization_order=1 \
+	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+	$(MAKE) BUILD_DIR=$(SANITIZE_BUILD_DIR) CC=$(CLANG) \
+		CFLAGS='$(CFLAGS) $(SANITIZER_CFLAGS)' \
+		LDFLAGS='$(LDFLAGS) $(SANITIZER_LDFLAGS)' \
+		check-runtime
+
+analysis: check-analysis
 
 $(DOC_BUILD_DIR)/.stamp: $(DOC_FILES) | $(DOC_BUILD_DIR)
 	cp $(DOC_FILES) $(DOC_BUILD_DIR)/
@@ -123,4 +174,5 @@ python: $(LIB_SHARED)
 	cd lang/python && pip install .
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(SANITIZE_BUILD_DIR)
+	rm -f compile_commands.json

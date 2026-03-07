@@ -206,6 +206,20 @@ Python install (after library install):
 cd lang/python && pip install .
 ```
 
+## Analysis
+
+Static analysis and sanitizer targets are available from the repo root:
+```
+make compile_commands.json
+make tidy
+make clang-analyze
+make fanalyzer
+make sanitize-check
+make analysis
+```
+
+`make sanitize-check` rebuilds into `build-sanitize/` with Clang ASan+UBSan and reruns `make check`, so the normal `build/` artifacts remain untouched.
+
 ## License ⚖
 
 Copyright © 2025 Alec Graves

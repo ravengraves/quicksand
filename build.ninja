@@ -1,11 +1,16 @@
 cc = cc
 ar = ar
+ninja = ninja
+clang = clang
+clang_tidy = clang-tidy
+gcc_analyzer = gcc
 cflags = -O2 -g -Wall -Wextra -std=c11 -fPIC
 cppflags = -Iinclude
 ldflags =
 ldlibs = -lm
 package_version = 1.0.0
 scdoc = scdoc
+sanitizers = address,undefined
 
 rule mkdir
   command = mkdir -p $out
@@ -54,7 +59,14 @@ rule uninstall_docs
   command = prefix=$${PREFIX:-/usr/local}; dest=$${DESTDIR:-}; rm -f $$dest$$prefix/share/doc/quicksand/*.md $$dest$$prefix/share/man/man3/quicksand.3; rmdir $$dest$$prefix/share/doc/quicksand 2>/dev/null || true; touch $out
 
 rule do_clean
-  command = rm -rf build && rm -f $out
+  command = rm -rf build build-sanitize && rm -f compile_commands.json $out
+
+rule gen_compdb
+  command = $ninja -f build.ninja -t compdb cc cc_timestamp link_exe > $out
+  generator = 1
+
+rule delegate_make
+  command = make $target && touch $out
 
 build build: mkdir
 build build/test: mkdir
@@ -75,12 +87,24 @@ build build/doc/.stamp: copy_docs doc/README.md doc/windows-mingw.md
 build build/doc/quicksand.3: scdoc doc/quicksand.3.scd
 build build/quicksand.pc: gen_pc doc/quicksand.pc.in
 
-build build/.check.stamp: run_check | build/test/basic build/test/time
+build build/.check.stamp: delegate_make | build
+  target = check
 build build/.install_lib.stamp: install_lib | build/libquicksand.so build/libquicksand.a build/quicksand.pc
 build build/.install_docs.stamp: install_docs | build/doc/.stamp build/doc/quicksand.3
 build build/.uninstall_lib.stamp: uninstall_lib
 build build/.uninstall_docs.stamp: uninstall_docs
 build .ninja-clean.stamp: do_clean
+build compile_commands.json: gen_compdb build.ninja
+build build/.tidy.stamp: delegate_make | build
+  target = tidy
+build build/.clang_analyze.stamp: delegate_make | build
+  target = clang-analyze
+build build/.fanalyzer.stamp: delegate_make | build
+  target = fanalyzer
+build build/.sanitize_check.stamp: delegate_make | build
+  target = sanitize-check
+build build/.analysis.stamp: delegate_make | build
+  target = analysis
 
 build all: phony build/libquicksand.so build/libquicksand.a build/test/basic build/test/time build/test/pub build/test/sub
 build check: phony build/.check.stamp
@@ -92,5 +116,10 @@ build install: phony build/.install_lib.stamp build/.install_docs.stamp
 build uninstall-lib: phony build/.uninstall_lib.stamp
 build uninstall-docs: phony build/.uninstall_docs.stamp
 build uninstall: phony build/.uninstall_lib.stamp build/.uninstall_docs.stamp
+build tidy: phony compile_commands.json build/.tidy.stamp
+build clang-analyze: phony build/.clang_analyze.stamp
+build fanalyzer: phony build/.fanalyzer.stamp
+build sanitize-check: phony build/.sanitize_check.stamp
+build analysis: phony build/.analysis.stamp
 
 default all

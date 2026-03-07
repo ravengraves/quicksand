@@ -1,0 +1,78 @@
+# QuickSand Windows build graph (MinGW + Ninja)
+# Primary entrypoint on Windows:
+#   ninja -f build_windows.ninja
+# Uses PREFIX as the install root (default /usr/local).
+
+default_cc = x86_64-w64-mingw32-gcc
+default_ar = x86_64-w64-mingw32-ar
+
+builddir = build/windows
+cflags = -Wall -Wextra -Wpedantic -std=c11 -O2 -Iinclude
+ldlibs = -lm
+package_version = 1.0.0
+
+rule cc
+  command = cmd /c "if not exist $builddir mkdir $builddir && if \"%CC%\"==\"\" set \"CC=$default_cc\" && %CC% -c $cflags $in -o $out"
+  description = CC $out
+
+rule cc_asm
+  command = cmd /c "if not exist $builddir mkdir $builddir && if \"%CC%\"==\"\" set \"CC=$default_cc\" && %CC% -c $in -o $out"
+  description = AS $out
+
+rule archive
+  command = cmd /c "if not exist $builddir mkdir $builddir && if \"%AR%\"==\"\" set \"AR=$default_ar\" && if exist $out del /Q $out && %AR% rcs $out $in"
+  description = AR $out
+
+rule link_dll
+  command = cmd /c "if not exist $builddir mkdir $builddir && if \"%CC%\"==\"\" set \"CC=$default_cc\" && %CC% -shared -o $out $in -Wl,--out-implib,$implib $ldlibs"
+  description = DLL $out
+
+rule link_exe
+  command = cmd /c "if not exist $builddir mkdir $builddir && if \"%CC%\"==\"\" set \"CC=$default_cc\" && %CC% $cflags -o $out $in $lib $ldlibs"
+  description = EXE $out
+
+rule gen_pc
+  command = cmd /c "if \"%PREFIX%\"==\"\" set \"PREFIX=/usr/local\" && sed -e \"s|@PREFIX@|%PREFIX%|g\" -e \"s|@LIBDIR@|%PREFIX%/lib|g\" -e \"s|@INCLUDEDIR@|%PREFIX%/include|g\" -e \"s|@VERSION@|$package_version|g\" $in > $out"
+  description = GEN $out
+
+rule copy_install
+  command = cmd /c "if \"%PREFIX%\"==\"\" set \"PREFIX=/usr/local\" && if not exist \"%PREFIX%/$destdir\" mkdir \"%PREFIX%/$destdir\" && copy /Y $in \"%PREFIX%/$out\" >NUL"
+  description = INSTALL $out
+
+build $builddir/quicksand.o: cc src/quicksand+windows.c
+build $builddir/time.o: cc src/time+windows.c
+build $builddir/timestamp.o: cc_asm src/timestamp+x86_64+windows.s
+
+build $builddir/libquicksand.a: archive $builddir/quicksand.o $builddir/time.o $builddir/timestamp.o
+build $builddir/libquicksand.dll: link_dll $builddir/quicksand.o $builddir/time.o $builddir/timestamp.o
+  implib = $builddir/libquicksand.dll.a
+
+build $builddir/test_basic.exe: link_exe test/test_basic.c
+  lib = $builddir/libquicksand.a
+build $builddir/test_time.exe: link_exe test/test_time.c
+  lib = $builddir/libquicksand.a
+build $builddir/test_pub.exe: link_exe test/test_pub.c
+  lib = $builddir/libquicksand.a
+build $builddir/test_sub.exe: link_exe test/test_sub.c
+  lib = $builddir/libquicksand.a
+
+build $builddir/quicksand.pc: gen_pc doc/quicksand.pc.in
+
+build lib/libquicksand.a: copy_install $builddir/libquicksand.a
+  destdir = lib
+build lib/libquicksand.dll: copy_install $builddir/libquicksand.dll
+  destdir = lib
+build lib/libquicksand.dll.a: copy_install $builddir/libquicksand.dll.a
+  destdir = lib
+build include/quicksand.h: copy_install include/quicksand.h
+  destdir = include
+build include/quicksand_style.h: copy_install include/quicksand_style.h
+  destdir = include
+build lib/pkgconfig/quicksand.pc: copy_install $builddir/quicksand.pc
+  destdir = lib/pkgconfig
+
+build all: phony $builddir/libquicksand.a $builddir/libquicksand.dll $builddir/test_basic.exe $builddir/test_time.exe $builddir/test_pub.exe $builddir/test_sub.exe
+build dll: phony $builddir/libquicksand.dll
+build install: phony lib/libquicksand.a lib/libquicksand.dll lib/libquicksand.dll.a include/quicksand.h include/quicksand_style.h lib/pkgconfig/quicksand.pc
+
+default all

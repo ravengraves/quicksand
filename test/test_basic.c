@@ -1,7 +1,14 @@
 #include <assert.h>
+#include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 
 #include "quicksand.h"
+
+static void *fail_alloc(size_t size) {
+	(void) size;
+	return NULL;
+}
 
 int main(void) {
 	quicksand_connection *writer = NULL;
@@ -34,6 +41,41 @@ int main(void) {
 	quicksand_connection *writer_big = NULL;
 	int64_t success3 = quicksand_connect(&writer_big, "test", -1, 32, 257, NULL);
 	assert(success3 < 0 && !writer_big);
+
+	// allocator failure while attaching must not delete the live topic
+	quicksand_connection *reader_fail = NULL;
+	int64_t success_attach_fail =
+		quicksand_connect(&reader_fail, "test", -1, -1, -1, fail_alloc);
+	assert(success_attach_fail == -ENOMEM && !reader_fail);
+	quicksand_connection *reader_retry = NULL;
+	int64_t success_attach_retry =
+		quicksand_connect(&reader_retry, "test", -1, -1, -1, NULL);
+	assert(success_attach_retry == 0 && reader_retry);
+	quicksand_disconnect(&reader_retry, NULL);
+
+	// allocator failure while creating must clean up the half-built topic
+	quicksand_connection *writer_alloc_fail = NULL;
+	quicksand_delete("allocfail", -1);
+	int64_t success_create_fail =
+		quicksand_connect(&writer_alloc_fail, "allocfail", -1, 32, 64,
+				  fail_alloc);
+	assert(success_create_fail == -ENOMEM && !writer_alloc_fail);
+	quicksand_connection *allocfail_reader = NULL;
+	int64_t allocfail_missing =
+		quicksand_connect(&allocfail_reader, "allocfail", -1, -1, -1, NULL);
+	assert(allocfail_missing == -ENOENT && !allocfail_reader);
+	int64_t success_create_retry =
+		quicksand_connect(&writer_alloc_fail, "allocfail", -1, 32, 64,
+				  NULL);
+	assert(success_create_retry == 0 && writer_alloc_fail);
+	quicksand_disconnect(&writer_alloc_fail, NULL);
+	quicksand_delete("allocfail", -1);
+
+	// corrupted layout metadata must be rejected before any slot access
+	uint64_t saved_message_size = writer->buffer->message_size;
+	writer->buffer->message_size = UINT64_MAX;
+	assert(quicksand_write(writer, data_write1, sizeof(data_write1)) == -EBADMSG);
+	writer->buffer->message_size = saved_message_size;
 
 	// delete the topic (unlink shm) and make sure it succeeds
 	quicksand_delete("test", -1);

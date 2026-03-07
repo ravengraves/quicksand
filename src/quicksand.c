@@ -46,33 +46,7 @@
 
 // memcpy(dest, src, bytes);
 static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n) {
-	u64 i = 0;
-	for(; i + 64 <= n; i += 64) {
-		u64 *dstptr = (u64 *) (dest + i);
-		const u64 *srcptr = (const u64 *) (src + i);
-		dstptr[0] = srcptr[0];
-		dstptr[1] = srcptr[1];
-		dstptr[2] = srcptr[2];
-		dstptr[3] = srcptr[3];
-		dstptr[4] = srcptr[4];
-		dstptr[5] = srcptr[5];
-		dstptr[6] = srcptr[6];
-		dstptr[7] = srcptr[7];
-	}
-	for(; i + 32 <= n; i += 32) {
-		u64 *dstptr = (u64 *) (dest + i);
-		const u64 *srcptr = (const u64 *) (src + i);
-		dstptr[0] = srcptr[0];
-		dstptr[1] = srcptr[1];
-		dstptr[2] = srcptr[2];
-		dstptr[3] = srcptr[3];
-	}
-	for(; i + 8 <= n; i += 8) {
-		*(u64 *) (dest + i) = *(const u64 *) (src + i);
-	}
-	for(; i < n; i += 1) {
-		dest[i] = src[i];
-	}
+	memcpy(dest, src, (size_t) n);
 }
 
 // ---------------------------------------------------------------------
@@ -89,9 +63,120 @@ static inline i64 round_to_64(i64 v) {
 static inline i64 round_to_pow2(i64 v) {
 	i64 res = 1;
 	while(res < v) {
+		if(res > INT64_MAX / 2) {
+			return -1;
+		}
 		res = res << 1;
 	}
 	return res;
+}
+
+static inline int is_power_of_two_u64(u64 value) {
+	return value != 0 && (value & (value - 1)) == 0;
+}
+
+static i64 checked_add_i64(i64 a, i64 b, i64 *out) {
+	if(a < 0 || b < 0) {
+		return -EINVAL;
+	}
+	if(a > INT64_MAX - b) {
+		return -EOVERFLOW;
+	}
+	*out = a + b;
+	return 0;
+}
+
+static i64 checked_mul_i64(i64 a, i64 b, i64 *out) {
+	if(a < 0 || b < 0) {
+		return -EINVAL;
+	}
+	if(a != 0 && b > INT64_MAX / a) {
+		return -EOVERFLOW;
+	}
+	*out = a * b;
+	return 0;
+}
+
+static i64 build_topic_name(char name_buf[256], const char *topic,
+			    i64 topic_length) {
+	size_t name_len = 0;
+
+	if(!topic || topic_length < -1) {
+		return -EINVAL;
+	}
+
+	if(topic_length == -1) {
+		name_len = strlen(topic);
+	} else {
+		name_len = (size_t) topic_length;
+	}
+
+	if(name_len == 0) {
+		return -EINVAL;
+	}
+	if(name_len >= sizeof(((quicksand_connection *) 0)->name)) {
+		return -ENAMETOOLONG;
+	}
+
+	memset(name_buf, 0, 256);
+	fast_memcpy((u8 *) name_buf, (const u8 *) topic, (u64) name_len);
+	name_buf[name_len] = '\0';
+	return (i64) name_len;
+}
+
+static i64 validate_ringbuffer_layout(const quicksand_ringbuffer *rb,
+				      u64 shared_memory_size,
+				      i64 expected_length,
+				      i64 minimum_message_size) {
+	u64 data_offset = (u64) round_to_64((i64) sizeof(quicksand_ringbuffer));
+	u64 length;
+	u64 message_size;
+
+	if(!rb || shared_memory_size < data_offset) {
+		return -EINVAL;
+	}
+
+	length = rb->length;
+	message_size = rb->message_size;
+	if(!is_power_of_two_u64(length) || message_size < 16) {
+		return -EINVAL;
+	}
+	if(expected_length > 0 && length != (u64) expected_length) {
+		return -EINVAL;
+	}
+	if(minimum_message_size > 0 && message_size < (u64) minimum_message_size) {
+		return -EINVAL;
+	}
+	if(message_size > shared_memory_size - data_offset) {
+		return -EINVAL;
+	}
+	if(length > (shared_memory_size - data_offset) / message_size) {
+		return -EINVAL;
+	}
+	return 0;
+}
+
+// Cleanup is explicitly best-effort: init paths must unwind cleanly, but a
+// failed close/munmap/shm_unlink must not mask the original result.
+static inline void best_effort_close(int fd) {
+	if(fd >= 0) {
+		int rc = close(fd);
+		(void) rc;
+	}
+}
+
+static inline void best_effort_munmap(void *addr, size_t size) {
+	if(addr && addr != MAP_FAILED && size > 0) {
+		int rc = munmap(addr, size);
+		(void) rc;
+	}
+}
+
+static inline void best_effort_shm_unlink(const char *name) {
+	if(name && name[0] != '\0') {
+		int rc = shm_unlink(name);
+		(void) rc;
+	}
 }
 
 // ---------------------------------------------------------------------
@@ -115,13 +200,14 @@ static inline void copy_topic_to_name(quicksand_connection *c, const char *topic
 i64 quicksand_connect(quicksand_connection **out, char *topic,
 		      i64 topic_length, i64 message_size,
 		      i64 message_rate, void *alloc) {
+	i64 rc;
+	i64 topic_name_len;
+	quicksand_connection *connection = NULL;
+
 	// -----------------------------------------------------------------
 	// Parameter validation
 	// -----------------------------------------------------------------
-	if(!topic) {
-		return -EINVAL;
-	}
-	if(topic_length < -1 || topic_length > 255) {
+	if(!topic || topic_length > 255) {
 		return -EINVAL;
 	}
 
@@ -137,12 +223,9 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// Build a null-terminated C string from the caller-supplied name.
 	// ---------------------------------------------------------------
 	char name_buf[256] = {0};
-	if(topic_length == -1) {
-		// -1 means "use strlen()".  The original code behaved the same.
-		snprintf(name_buf, sizeof(name_buf), "%s", topic);
-	} else {
-		snprintf(name_buf, sizeof(name_buf), "%.*s", (int) topic_length,
-			 topic);
+	topic_name_len = build_topic_name(name_buf, topic, topic_length);
+	if(topic_name_len < 0) {
+		return topic_name_len;
 	}
 
 	// ---------------------------------------------------------------
@@ -151,53 +234,62 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// ---------------------------------------------------------------
 	if(message_size <= 0 || message_rate <= 0) {
 		int fd = shm_open(name_buf, O_RDWR, 0);
+		u64 shared_memory_size = 0;
+
 		if(fd == -1) {
 			return -ENOENT; // segment does not exist
 		}
 
 		struct stat sb;
 		if(fstat(fd, &sb) < 0) {
-			close(fd);
+			best_effort_close(fd);
 			return -EIO;
 		}
 		if(sb.st_size < (off_t) sizeof(quicksand_ringbuffer)) {
-			close(fd);
+			best_effort_close(fd);
 			return -EINVAL; // too small
 		}
+		shared_memory_size = (u64) sb.st_size;
 
-		void *addr = mmap(NULL, (size_t) sb.st_size,
+		void *addr = mmap(NULL, (size_t) shared_memory_size,
 				  PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		if(addr == MAP_FAILED) {
-			close(fd);
-			return -ENOMEM;
+			best_effort_close(fd);
+			return -errno;
 		}
 
 		quicksand_ringbuffer *rb = (quicksand_ringbuffer *) addr;
-
-		// sanity-check the meta-data
-		if(rb->length > (u64) 1e12 || rb->message_size >= (u64) 1e12) {
-			munmap(addr, (size_t) sb.st_size);
-			close(fd);
-			return -EINVAL;
+		rc = validate_ringbuffer_layout(rb, shared_memory_size, 0, 16);
+		if(rc < 0) {
+			best_effort_munmap(addr, (size_t) shared_memory_size);
+			best_effort_close(fd);
+			return rc;
 		}
 
-		// Allocate out if null
-		if(!*out) {
-			*out = allocate(sizeof(quicksand_connection));
+		if(!out) {
+			best_effort_munmap(addr, (size_t) shared_memory_size);
+			best_effort_close(fd);
+			return 0;
 		}
-		if(!*out) {
-			close(fd);
-			shm_unlink(name_buf);
+
+		connection = *out;
+		if(!connection) {
+			connection = allocate(sizeof(quicksand_connection));
+		}
+		if(!connection) {
+			best_effort_munmap(addr, (size_t) shared_memory_size);
+			best_effort_close(fd);
 			return -ENOMEM;
 		}
 
-		// Fill the user-supplied connection object
-		(*out)->read_stamp = quicksand_now();
-		(*out)->read_index = 0;
-		(*out)->shared_memory_handle = (u64) fd;
-		(*out)->shared_memory_size = (u64) sb.st_size;
-		(*out)->buffer = rb;
-		copy_topic_to_name(*out, name_buf, (i64) strlen(name_buf));
+		memset(connection, 0, sizeof(*connection));
+		connection->read_stamp = quicksand_now();
+		connection->read_index = 0;
+		connection->shared_memory_handle = (u64) fd;
+		connection->shared_memory_size = shared_memory_size;
+		connection->buffer = rb;
+		copy_topic_to_name(connection, name_buf, topic_name_len);
+		*out = connection;
 		return 0;
 	}
 
@@ -217,33 +309,51 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	//   shm_size      = data_offset + payload_area
 	// ---------------------------------------------------------------
 	i64 data_offset = round_to_64((i64) sizeof(quicksand_ringbuffer));
+	i64 padded_unaligned = 0;
+	i64 padded_msg = 0;
+	i64 ring_length = 0;
+	i64 payload_area = 0;
+	i64 shm_size = 0;
 
 	// reserve enough space for 1e9 ns (1 second) of messages.
 	// padded = [write_timestamp] + [message_len] + [message]
-	i64 padded_msg = round_to_64(8 + 8 + message_size);
-	i64 ring_length = round_to_pow2(message_rate);
-	i64 payload_area = padded_msg * ring_length;
-	if(padded_msg < 0 || payload_area < 0) {
-		return -EINVAL;
+	rc = checked_add_i64(message_size, 16, &padded_unaligned);
+	if(rc < 0) {
+		return rc;
 	}
-
-	i64 shm_size = data_offset + payload_area;
-	if(shm_size > (i64) INT64_MAX) {
+	padded_msg = round_to_64(padded_unaligned);
+	if(padded_msg < 16) {
 		return -EOVERFLOW;
+	}
+	ring_length = round_to_pow2(message_rate);
+	if(ring_length <= 0) {
+		return -EOVERFLOW;
+	}
+	rc = checked_mul_i64(padded_msg, ring_length, &payload_area);
+	if(rc < 0) {
+		return rc;
+	}
+	rc = checked_add_i64(data_offset, payload_area, &shm_size);
+	if(rc < 0) {
+		return rc;
 	}
 
 	int already_exists = 0;
 	int fd = shm_open(name_buf, O_EXCL | O_CREAT | O_RDWR,
 			  S_IRUSR | S_IWUSR);
 	if(fd == -1 && errno == EEXIST) {
-		fd = shm_open(name_buf, O_RDWR, 0);
 		struct stat sb;
+
+		fd = shm_open(name_buf, O_RDWR, 0);
+		if(fd == -1) {
+			return -errno;
+		}
 		if(fstat(fd, &sb) < 0) {
-			close(fd);
+			best_effort_close(fd);
 			return -EIO;
 		}
 		if(sb.st_size != shm_size) { // Abort if size does not match
-			close(fd);
+			best_effort_close(fd);
 			return -EINVAL; // too small
 		}
 		already_exists = 1;
@@ -255,18 +365,22 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// Resize the shm object to the required size
 	if(!already_exists) {
 		if(ftruncate(fd, (off_t) shm_size) == -1) {
-			close(fd);
-			shm_unlink(name_buf);
-			return -errno;
+			rc = -errno;
+			best_effort_close(fd);
+			best_effort_shm_unlink(name_buf);
+			return rc;
 		}
 	}
 
 	void *addr = mmap(NULL, (size_t) shm_size, PROT_READ | PROT_WRITE,
 			  MAP_SHARED, fd, 0);
 	if(addr == MAP_FAILED) {
-		close(fd);
-		shm_unlink(name_buf);
-		return -EINVAL;
+		rc = -errno;
+		best_effort_close(fd);
+		if(!already_exists) {
+			best_effort_shm_unlink(name_buf);
+		}
+		return rc;
 	}
 
 	// -----------------------------------------------------------------
@@ -280,30 +394,46 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		atomic_store_explicit(&rb->reserve, 0, memory_order_relaxed);
 		atomic_store_explicit(&rb->index, 0, memory_order_relaxed);
 		atomic_store_explicit(&rb->updatestamp, 0, memory_order_relaxed);
-	} else if(rb->length != (u64) ring_length
-		  || rb->message_size < (u64) padded_msg) {
-		close(fd);
-		shm_unlink(name_buf);
-		return -EINVAL;
+		atomic_store_explicit(&rb->locked, 0, memory_order_relaxed);
+	}
+	rc = validate_ringbuffer_layout(rb, (u64) shm_size, ring_length,
+					padded_msg);
+	if(rc < 0) {
+		best_effort_munmap(addr, (size_t) shm_size);
+		best_effort_close(fd);
+		if(!already_exists) {
+			best_effort_shm_unlink(name_buf);
+		}
+		return rc;
 	}
 
-	// Allocate out if null
-	if(!*out) {
-		*out = allocate(sizeof(quicksand_connection));
+	if(!out) {
+		best_effort_munmap(addr, (size_t) shm_size);
+		best_effort_close(fd);
+		return 0;
 	}
-	if(!*out) {
-		close(fd);
-		shm_unlink(name_buf);
+
+	connection = *out;
+	if(!connection) {
+		connection = allocate(sizeof(quicksand_connection));
+	}
+	if(!connection) {
+		best_effort_munmap(addr, (size_t) shm_size);
+		best_effort_close(fd);
+		if(!already_exists) {
+			best_effort_shm_unlink(name_buf);
+		}
 		return -ENOMEM;
 	}
 
-	// Fill the user-supplied connection object
-	((*out)->read_stamp) = quicksand_now();
-	((*out)->read_index) = 0;
-	((*out)->shared_memory_handle) = (u64) fd;
-	((*out)->shared_memory_size) = (u64) shm_size;
-	((*out)->buffer) = rb;
-	copy_topic_to_name(*out, name_buf, (i64) strlen(name_buf));
+	memset(connection, 0, sizeof(*connection));
+	connection->read_stamp = quicksand_now();
+	connection->read_index = 0;
+	connection->shared_memory_handle = (u64) fd;
+	connection->shared_memory_size = (u64) shm_size;
+	connection->buffer = rb;
+	copy_topic_to_name(connection, name_buf, topic_name_len);
+	*out = connection;
 
 	return 0;
 }
@@ -312,14 +442,15 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 // quicksand_disconnect - undo everything done in quicksand_connect
 // ---------------------------------------------------------------------
 void quicksand_disconnect(quicksand_connection **c, void *dealloc) {
-	if(!(*c)) {
+	if(!c || !(*c)) {
 		return;
 	}
 
 	if((*c)->shared_memory_handle > 0) {
 		// Unmap the segment first
-		munmap((void *) (*c)->buffer, (size_t) (*c)->shared_memory_size);
-		close((int) (*c)->shared_memory_handle);
+		best_effort_munmap((void *) (*c)->buffer,
+				   (size_t) (*c)->shared_memory_size);
+		best_effort_close((int) (*c)->shared_memory_handle);
 		// shm_unlink((char*)(*c)->name); // removes the buffer for future
 		// use quicksand_delete(name, namelen) instead
 	}
@@ -336,14 +467,11 @@ void quicksand_disconnect(quicksand_connection **c, void *dealloc) {
 
 void quicksand_delete(char *topic, i64 topic_length) {
 	char name_buf[256] = {0};
-	if(topic_length == -1) {
-		// -1 means "use strlen()".  The original code behaved the same.
-		snprintf(name_buf, sizeof(name_buf), "%s", topic);
-	} else {
-		snprintf(name_buf, sizeof(name_buf), "%.*s", (int) topic_length,
-			 topic);
+	i64 topic_name_len = build_topic_name(name_buf, topic, topic_length);
+	if(topic_name_len < 0) {
+		return;
 	}
-	shm_unlink(name_buf);
+	best_effort_shm_unlink(name_buf);
 }
 
 // ---------------------------------------------------------------------
@@ -383,23 +511,35 @@ static i64 _quicksand_unlock(quicksand_ringbuffer *ring, u64 locktime) {
 // ---------------------------------------------------------------------
 i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	u64 start_time = quicksand_now();
+	u64 ring_length = 0;
+	u64 slot_size = 0;
+	u64 data_offset = 0;
+	u64 slot = 0;
+	i64 rc = 0;
 	if(!c || !msg) {
 		return -EINVAL;
 	}
 	quicksand_ringbuffer *rb = c->buffer;
-	if(!rb || rb->length <= 0) {
+	if(!rb) {
 		return -EPIPE; // uninitialised
 	}
+	rc = validate_ringbuffer_layout(rb, c->shared_memory_size, 0, 16);
+	if(rc < 0) {
+		return -EBADMSG;
+	}
+	ring_length = rb->length;
+	slot_size = rb->message_size;
+	data_offset = (u64) round_to_64((i64) sizeof(quicksand_ringbuffer));
 
 	// attempt unlock
 	u64 locktime = atomic_load_explicit(&rb->locked, memory_order_relaxed);
-	if(rb->locked) {
+	if(locktime != 0) {
 		_quicksand_unlock(rb, locktime);
 		return -ETIMEDOUT;
 	}
 
 
-	if(msg_len < 0 || msg_len > ((i64) rb->message_size) - 16) {
+	if(msg_len < 0 || (u64) msg_len > slot_size - 16) {
 		return -EMSGSIZE; // message does not fit
 	}
 
@@ -418,7 +558,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	// 2. Block until reserve < 50% away from index
 	// -----------------------------------------------------------------
 	while(my_reserve - atomic_load_explicit(&rb->index, memory_order_relaxed)
-	      > rb->length / 2) {
+	      > ring_length / 2) {
 		if(quicksand_ns(quicksand_now(), start_time) > QUICKSAND_TIMEOUT / 2) {
 			atomic_store_explicit(&rb->locked, quicksand_now(), memory_order_relaxed);
 			return -ETIMEDOUT;
@@ -428,14 +568,13 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	// -----------------------------------------------------------------
 	// 3. Write the message
 	// -----------------------------------------------------------------
-	u64 slot = my_reserve & (rb->length - 1);
+	slot = my_reserve & (ring_length - 1);
 	u8 *base = (u8 *) rb;
-	u64 data_offset = round_to_64((i64) sizeof(quicksand_ringbuffer));
-	u8 *slot_ptr = base + data_offset + slot * (u64) rb->message_size;
+	u8 *slot_ptr = base + data_offset + slot * slot_size;
 
 	*((u64 *) slot_ptr) = quicksand_now();
 	*((i64 *) (slot_ptr + 8)) = msg_len;
-	fast_memcpy(slot_ptr + 16, msg, msg_len);
+	fast_memcpy(slot_ptr + 16, msg, (u64) msg_len);
 
 	// -----------------------------------------------------------------
 	// 4. Wait to advance index
@@ -457,14 +596,25 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 // quicksand_read - fetch the next available payload, if any
 // ---------------------------------------------------------------------
 i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
+	u64 ring_length = 0;
+	u64 slot_size = 0;
+	u64 data_offset = 0;
+	i64 rc = 0;
 	if(!c || !msg || !msg_len) {
 		return -EINVAL;
 	}
 	quicksand_ringbuffer *rb = c->buffer;
 
-	if(rb->length <= 0) {
+	if(!rb) {
 		return -EPIPE; // not initialized
 	}
+	rc = validate_ringbuffer_layout(rb, c->shared_memory_size, 0, 16);
+	if(rc < 0) {
+		return -EBADMSG;
+	}
+	ring_length = rb->length;
+	slot_size = rb->message_size;
+	data_offset = (u64) round_to_64((i64) sizeof(quicksand_ringbuffer));
 
 	// -----------------------------------------------------------------
 	// 1. Load the current write index (the slot that *has* been
@@ -496,17 +646,17 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	// -----------------------------------------------------------------
 	u64 distance = write_cursor - c->read_index;
 	f64 time_delta = quicksand_ns(rb->updatestamp, c->read_stamp);
-	if(distance > (rb->length / 2) || (time_delta > QUICKSAND_TIMEOUT && write_cursor > c->read_index)) {
+	if(distance > (ring_length / 2)
+	   || (time_delta > QUICKSAND_TIMEOUT && write_cursor > c->read_index)) {
 		c->read_index = write_cursor - 1; // skip stale data
 	}
 
 	// -----------------------------------------------------------------
 	// 4. Compute slot location and update read index
 	// -----------------------------------------------------------------
-	u64 slot = c->read_index & (rb->length - 1);
+	u64 slot = c->read_index & (ring_length - 1);
 	u8 *base = (u8 *) rb;
-	u64 data_offset = round_to_64((i64) sizeof(quicksand_ringbuffer));
-	u8 *slot_ptr = base + data_offset + slot * (u64) rb->message_size;
+	u8 *slot_ptr = base + data_offset + slot * slot_size;
 
 	// -----------------------------------------------------------------
 	// 5. Advance our local read pointer so the next call reads the next slot.
@@ -519,7 +669,7 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	// -----------------------------------------------------------------
 	// u64 payload_stamp = *((u64 *) slot_ptr); // unused
 	i64 payload_len = *((i64 *) (slot_ptr + 8));
-	if(payload_len < 0 || payload_len > ((i64) rb->message_size) - 16) {
+	if(payload_len < 0 || (u64) payload_len > slot_size - 16) {
 		// Corrupted size - treat as no-data
 		return -EBADMSG;
 	}

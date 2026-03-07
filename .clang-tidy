@@ -1,0 +1,51 @@
+---
+Checks: >-
+  -*,
+  clang-analyzer-apiModeling.Errno,
+  clang-analyzer-core.*,
+  clang-analyzer-deadcode.DeadStores,
+  clang-analyzer-security.FloatLoopCounter,
+  clang-analyzer-security.cert.env.InvalidPtr,
+  clang-analyzer-security.insecureAPI.UncheckedReturn,
+  clang-analyzer-unix.*,
+  bugprone-assignment-in-if-condition,
+  bugprone-assert-side-effect,
+  bugprone-bool-pointer-implicit-conversion,
+  bugprone-branch-clone,
+  bugprone-infinite-loop,
+  bugprone-macro-parentheses,
+  bugprone-macro-repeated-side-effects,
+  bugprone-misplaced-pointer-arithmetic-in-alloc,
+  bugprone-misplaced-widening-cast,
+  bugprone-multi-level-implicit-pointer-conversion,
+  bugprone-posix-return,
+  bugprone-signal-handler,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-memory-comparison,
+  bugprone-suspicious-memset-usage,
+  bugprone-suspicious-missing-comma,
+  bugprone-suspicious-realloc-usage,
+  bugprone-suspicious-semicolon,
+  bugprone-swapped-arguments,
+  bugprone-too-small-loop-variable,
+  bugprone-undefined-memory-manipulation,
+  bugprone-unused-return-value,
+  cert-dcl03-c,
+  cert-dcl16-c,
+  cert-err34-c,
+  cert-exp42-c,
+  cert-flp30-c,
+  cert-pos44-c,
+  cert-pos47-c,
+  cert-sig30-c,
+  cert-str34-c
+
+HeaderFilterRegex: '^(src|include|test)/'
+FormatStyle: none
+SystemHeaders: false
+
+CheckOptions:
+  - key: bugprone-unused-return-value.CheckedFunctions
+    value: >-
+      close;fclose;fflush;fsync;ftruncate;fwrite;munmap;msync;
+      pthread_mutex_lock;pthread_mutex_unlock;shm_open;shm_unlink;write
