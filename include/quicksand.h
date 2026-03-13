@@ -221,7 +221,7 @@ void quicksand_sleep(double nanoseconds);
  *
  *  @return Elapsed nanoseconds.
  */
-inline double quicksand_elapsed(uint64_t initial_timestamp) {
+static inline double quicksand_elapsed(uint64_t initial_timestamp) {
 	return quicksand_ns(quicksand_now(), initial_timestamp);
 }
 
@@ -231,7 +231,7 @@ inline double quicksand_elapsed(uint64_t initial_timestamp) {
  *
  *  @return Number of unread messages.
  */
-inline uint64_t quicksand_read_remaining(quicksand_connection *connection) {
+static inline uint64_t quicksand_read_remaining(quicksand_connection *connection) {
 	return connection->read_index - connection->buffer->index;
 }
 
@@ -248,8 +248,8 @@ inline uint64_t quicksand_read_remaining(quicksand_connection *connection) {
  *  @return Result of @c quicksand_read, or -1 if no new messages were
  *          available.
  */
-inline int64_t quicksand_read_latest(quicksand_connection *connection,
-				     uint8_t *message, int64_t *message_size) {
+static inline int64_t quicksand_read_latest(quicksand_connection *connection,
+					    uint8_t *message, int64_t *message_size) {
 	/* Return last message if new messages are available */
 	if(connection->read_index < connection->buffer->index) {
 		connection->read_index = connection->buffer->index - 1;
