@@ -56,7 +56,7 @@ build $builddir/test_pub.exe: link_exe test/test_pub.c
 build $builddir/test_sub.exe: link_exe test/test_sub.c
   lib = $builddir/libquicksand.a
 
-build $builddir/quicksand.pc: gen_pc doc/quicksand.pc.in
+build $builddir/quicksand.pc: gen_pc docs/quicksand.pc.in
 
 build lib/libquicksand.a: copy_install $builddir/libquicksand.a
   destdir = lib

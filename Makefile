@@ -15,8 +15,8 @@ SANITIZER_LDFLAGS ?= -fsanitize=$(SANITIZERS)
 SANITIZE_BUILD_DIR ?= build-sanitize
 
 BUILD_DIR := build
-DOC_DIR := doc
-DOC_BUILD_DIR := $(BUILD_DIR)/doc
+DOC_DIR := docs
+DOC_BUILD_DIR := $(BUILD_DIR)/docs
 DOC_FILES := $(wildcard $(DOC_DIR)/*.md)
 DOC_BASENAMES := $(notdir $(DOC_FILES))
 MAN_SOURCE := $(DOC_DIR)/quicksand.3.scd
