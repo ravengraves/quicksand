@@ -135,7 +135,7 @@ uninstall-docs:
 uninstall: uninstall-lib uninstall-docs
 
 python: $(LIB_SHARED)
-	cd lang/python && pip install .
+	cd lang/python && { pip install --break-system-packages -e .; } || { pip install -e .; }
 
 clean:
 	rm -rf $(BUILD_DIR)
