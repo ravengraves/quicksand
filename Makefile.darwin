@@ -19,7 +19,7 @@ LIB_STATIC := $(BUILD_DIR)/libquicksand.a
 PC_FILE := $(BUILD_DIR)/quicksand.pc
 
 CPPFLAGS ?= -Iinclude
-CFLAGS ?= -O2 -g -Wall -Wextra -std=c11 -fPIC
+CFLAGS ?= -O3 -g -Wall -Wextra -std=c11 -fPIC
 LDFLAGS ?=
 LDLIBS ?= -lm
 SHARED_LDFLAGS ?= -dynamiclib -Wl,-install_name,$(PREFIX)/lib/libquicksand.dylib
@@ -31,10 +31,12 @@ endif
 
 ifeq ($(MACOS_ARCH),x86_64)
 TIMESTAMP_SRC := src/timestamp+x86_64+macos.s
+CFLAGS += -march=native -mtune=native
 endif
 
 ifeq ($(MACOS_ARCH),arm64)
 TIMESTAMP_SRC := src/timestamp+arm64+macos.s
+CFLAGS += -mcpu=native
 endif
 
 TIME_SRC := src/time+macos.c

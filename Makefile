@@ -27,12 +27,20 @@ LIB_STATIC := $(BUILD_DIR)/libquicksand.a
 PC_FILE := $(BUILD_DIR)/quicksand.pc
 
 CPPFLAGS ?= -Iinclude
-CFLAGS ?= -O2 -g -Wall -Wextra -std=c11 -fPIC
+CFLAGS ?= -O3 -g -Wall -Wextra -std=c11 -fPIC
 LDFLAGS ?=
 LDLIBS ?= -lm
 
 ifeq ($(ARCH),arm64)
 ARCH := aarch64
+endif
+
+ifeq ($(ARCH),x86_64)
+	CFLAGS += -march=native -mtune=native
+endif
+
+ifeq ($(ARCH),aarch64)
+	CFLAGS += -mcpu=native
 endif
 
 TIMESTAMP_SRC := src/timestamp+$(ARCH).s
