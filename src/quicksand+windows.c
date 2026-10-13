@@ -441,6 +441,9 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 		return -1; // "0 messages read"
 	}
 
+	// Acquire published writes before selecting or copying a slot.
+	write_cursor = atomic_load_explicit(&rb->index, memory_order_acquire);
+
 	// -----------------------------------------------------------------
 	// 3. The writer may have advanced *many* slots ahead.  If the distance
 	//    is larger than half the ring we clamp the "oldest readable" slot

@@ -219,6 +219,9 @@ An overtaken writer returns `-ETIMEDOUT`.
 This checks the index, not a reservation generation; 
 recovery that reuses an unchanged index is not detected by this check.
 
+Readers keep empty polling relaxed, then acquire the published index before
+selecting and copying a message.
+
 The private copy helper uses four 128-bit streams when the compile target enables
 x86-64 SSE4.2/PCLMUL or little-endian AArch64 NEON/PMULL/CRC. Other targets use a
 static slicing-by-4 tables (4 KiB total) with fused four-byte copying and a
@@ -310,6 +313,11 @@ Comparing the non-crc `3a569e3` baseline with protocol version 1 (CRC):
 | 1 MiB | 13,471 → 10,672 | -20.8% | 160.71 → 375.34 | 2.42 → 39.24 |
 
 Latency can double for large payloads but is unchanged (or improved, perhaps due to cache) for small payloads. Max throughput is lowered by 10-20% depending on payload size. Invalid data from conflicting writers are rejected.
+---
+
+**2026-10-13:** added CAS to writer index update to prevent rollback from recovery
+- also added read acquire fence before full read (leaving reader polling as relaxed)
+	- ~5-10% reduction in small message max throughput, insignificant impact to latency.
 
 ---
 

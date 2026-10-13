@@ -80,7 +80,8 @@ slots retain the 16-byte timestamp/length preamble followed by the payload and a
 
 Stop all old processes and recreate topics during an upgrade. Old binaries do
 not reliably reject this format. CRC provides error detection, not synchronization
-or guaranteed overwrite detection; existing memory orders are unchanged.
+or guaranteed overwrite detection. Readers poll with relaxed ordering, then
+acquire the published index before selecting and copying a slot.
 
 # EXAMPLE
 

@@ -171,6 +171,8 @@ int64_t quicksand_write(quicksand_connection *connection, uint8_t *message,
  *  read.
  *  If the writer is > 50% of the ring length past the reader, or > timeout
  *  has elapsed since the last read, this will only read the last message.
+ *  Empty polling is relaxed; available data is acquired through the published
+ *  index before selecting and copying a slot.
  *
  *  @param connection   Initialized @c quicksand_connection.
  *  @param message      Buffer to receive the message.
