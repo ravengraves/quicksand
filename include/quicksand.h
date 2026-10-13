@@ -22,6 +22,9 @@ extern "C" {
 /** Size of a cache line on most modern CPUs (in bytes). */
 #define CACHE_LINE_SIZE 64
 
+/** Shared-memory protocol version; incompatible topics must be recreated. */
+#define QUICKSAND_RING_VERSION 1u
+
 /** @brief Ring buffer data structure.
  *
  *  The ring buffer is placed in shared memory immediately followed by the
@@ -32,11 +35,14 @@ typedef struct {
 	/** Number of slots in the buffer. */
 	uint64_t length;
 
-	/** Size (bytes) of each slot. */
+	/** Slot stride in bytes: round_up(payload capacity + 20, 64). */
 	uint64_t message_size;
 
+	/** Ring protocol version, stored in formerly unused header padding. */
+	uint32_t version;
+
 	/** Padding to align the next field to a cache line boundary. */
-	char pad1[CACHE_LINE_SIZE - 2 * sizeof(int64_t)];
+	char pad1[CACHE_LINE_SIZE - 2 * sizeof(int64_t) - sizeof(uint32_t)];
 
 	/** Writer reserve index (atomic).  Writers increment this value before
      *  writing a slot to claim it. */
@@ -106,7 +112,9 @@ typedef struct {
  *  @param alloc        Custom allocator that follows @c malloc(size_t)
  *                      semantics, or @c NULL to use the system allocator.
  *
- *  @return 0 on success, or a negative error code on failure.
+ *  @return 0 on success, or a negative error code on failure. Incompatible
+ *          ring versions return -EPROTONOSUPPORT. Stop old processes and
+ *          recreate topics when upgrading; old binaries may accept this format.
  */
 int64_t quicksand_connect(quicksand_connection **connection, char *topic,
 			  int64_t topic_length, int64_t message_size,
@@ -171,6 +179,11 @@ int64_t quicksand_write(quicksand_connection *connection, uint8_t *message,
  *          was read, or a negative errno on error. A buffer that is too small
  *          returns -EINVAL without consuming the selected message; retry with
  *          a larger buffer, subject to the usual overwrite/lag policy.
+ *          A corrupt length or CRC-32C mismatch returns -EBADMSG and consumes
+ *          the selected message. The caller's length is unchanged on failure;
+ *          discard any output bytes. CRC covers the preamble and all payload
+ *          bytes; it provides error detection, not synchronization or guaranteed
+ *          detection of concurrent overwrites.
  */
 int64_t quicksand_read(quicksand_connection *connection, uint8_t *message,
 		       int64_t *message_size);

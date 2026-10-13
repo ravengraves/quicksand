@@ -78,7 +78,7 @@ build build/timestamp.o: cc_timestamp | build
 build build/libquicksand.so: link_shared build/quicksand.o build/time.o build/timestamp.o
 build build/libquicksand.a: archive build/quicksand.o build/time.o build/timestamp.o
 
-build build/test/copy: link_exe test/test_copy.c build/libquicksand.a | src/quicksand.c src/quicksand+windows.c include/quicksand.h include/quicksand_style.h build/test
+build build/test/copy: link_exe test/test_copy.c build/libquicksand.a | src/quicksand_crc.h build/test
 
 build build/test/basic: link_exe test/test_basic.c build/libquicksand.a | build/test
 build build/test/time: link_exe test/test_time.c build/libquicksand.a | build/test
@@ -135,3 +135,11 @@ rule run_transport_benchmark
   command = ./build/test/bench_transport
   pool = console
 build bench-transport: run_transport_benchmark build/test/bench_transport
+
+# Production copy/CRC helper versus libc memcpy.
+build build/test/bench_copy: link_exe test/bench_copy.c build/libquicksand.a | src/quicksand_crc.h build/test
+
+rule run_copy_benchmark
+  command = ./build/test/bench_copy
+  pool = console
+build bench-copy: run_copy_benchmark build/test/bench_copy

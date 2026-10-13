@@ -2,7 +2,9 @@
 
 A multiple-reader multiple-writer communication library enabling robots to think at the speed of silicon!
 
-We have benchmarked processing over 20 million messages per second per process on a on a 2020 laptop processor (i7-1165G7 @ 2.80GHz). This library uses a lock-free shared-memory ring buffer in order to perform inter-process message passing significantly faster than other libraries.
+We have benchmarked sending over 15 million messages per second per process on a on a 2020 laptop processor (i7-1165G7 @ 2.80GHz). This library uses a lock-free shared-memory ring buffer in order to perform inter-process message passing significantly faster than other libraries.
+
+Quicksand is a low-latency message passing transport, but the Quicksand protocol does not guarantee that messages were received. Old messages are automatically dropped, and timing delays from an overloaded CPU can also cause messages to be dropped. Users must implement higher-level protocols if they need to ensure any single message was received.
 
 ## Usage - Python 🐍
 
@@ -192,24 +194,58 @@ $ ./build/test/sub
 20429499.443235 msgs/s (drop: 0.000000 %)
 ```
 
+## Message integrity
+
+Ring protocol version 1 keeps the 192-byte ring header and all existing field
+offsets, placing a `uint32_t version` in its padding. Each slot contains
+`timestamp:8 | payload_length:8 | payload:N | CRC32C:4 | padding` in native byte
+order. Strides reserve 20 bytes of overhead and round up to 64 bytes, with a
+minimum of 64 bytes. CRC-32C covers the entire 16-byte preamble and every payload
+byte, excluding the trailer and padding.
+
+A version mismatch returns `-EPROTONOSUPPORT` on connection. Upgrade all processes
+together: stop old processes and recreate topics. Old binaries before version 1 
+do not reliably reject the new format. CRC detects errors; it adds no
+synchronization and does not guarantee detection of concurrent overwrites. 
+
+A corrupt length or checksum returns `-EBADMSG` and consumes the selected message.
+The caller's length stays unchanged on failure; discard any copied bytes.
+An undersized output buffer still returns `-EINVAL` without consuming the selected
+message, allowing retry subject to the usual overwrite/lag policy.
+
+The private copy helper uses four 128-bit streams when the compile target enables
+x86-64 SSE4.2/PCLMUL or little-endian AArch64 NEON/PMULL/CRC. Other targets use a
+static slicing-by-4 tables (4 KiB total) with fused four-byte copying and a
+bytewise remainder. This exposes independent table lookups without requiring
+SIMD instructions or runtime initialization.
+Make selects the native CPU by default; Ninja's default flags select the portable fallback. 
+Set target flags explicitly for deployment on other CPUs.
+Define `QUICKSAND_CRC_SOFTWARE` to force the fallback, for example:
+
+```sh
+make check-runtime
+make BUILD_DIR=build-software CPPFLAGS='-Iinclude -DQUICKSAND_CRC_SOFTWARE' check-runtime
+make BUILD_DIR=build-generic CFLAGS='-O3 -g -Wall -Wextra -std=c11 -fPIC' check-runtime
+```
+
+## Copy benchmark
+
+Run `make bench-copy`, `make -f Makefile.darwin bench-copy`, or `ninja bench-copy`.
+It compares the production copy plus CRC against libc `memcpy` for 8 B, 512 B,
+1 KiB, 16 KiB, and 1 MiB. Alignments cover aligned buffers, ring writes/reads with
+a +16 offset, and unaligned buffers.
+
 ## Transport benchmark
 
 Run `make bench-transport` (macOS: `make -f Makefile.darwin bench-transport`)
-or `ninja bench-transport`. For each payload size (8 B, 512 B, 1 KiB, 16 KiB,
-1 MiB), a fresh ring is created with the largest power-of-two slot count fitting
-within 32 MiB, including metadata. Rings are tested and released one at a time.
+or `ninja bench-transport`.
 
-A writer thread and a busy-polling reader thread start on a shared signal. Each
-test writes unthrottled for about one second, then drains the reader. Allocation
-and ring prefaulting happen before timing. Each output line reports payload size, successful reads per second, nanoseconds
-per successful read, average delivery latency, and skip percentage.
+A writer thread and a busy-polling reader thread start on a shared signal. Each test writes unthrottled for about one second. Allocation and ring prefaulting happen before timing. Each output line reports payload size, successful reads per second, nanoseconds per successful read, average delivery latency, skip percentage, and CRC rejection count (included in skips).
+
 Latency runs from the timestamp placed in the first eight payload bytes just
 before `quicksand_write` to completion of `quicksand_read`, including both copies
 and queueing. Timestamping overhead is included; the timestamp is part of the
 stated payload size. Latency covers only received messages. Thread placement is left to the OS.
-
-Pthreads are a benchmark-only dependency; library memory orders are unchanged.
-`make bench-copy` separately compares the payload copy helper against libc.
 
 ## Installation 📖
 
@@ -237,7 +273,29 @@ make sanitize-check
 make analysis
 ```
 
-`make sanitize-check` rebuilds into `build-sanitize/` with Clang ASan+UBSan and reruns `make check`, so the normal `build/` artifacts remain untouched.
+`make sanitize-check` rebuilds into `build-sanitize/` with Clang ASan+UBSan and reruns `make check-runtime`, so the normal `build/` artifacts remain untouched.
+
+
+## Changes
+---
+**2026-10-13:** added CRC32 to reject overlapping reads from delayed writer.
+
+Measured on 2026-10-13, Intel Core i7-1165G7, GCC 14.2.0,
+`-O3 -march=native -mtune=native`, x86 PCLMUL/CRC backend.
+
+Comparing the non-crc `3a569e3` baseline with protocol version 1 (CRC):
+
+| Payload | Reads/s before → CRC | Change | Delivery latency µs before → CRC | Skip % before → CRC |
+| --- | ---: | ---: | ---: | ---: |
+| 8 B | 13,347,620 → 11,692,027 | -12.4% | 1.91 → 0.25 | 0.00 → 0.00 |
+| 512 B | 8,325,154 → 7,665,717 | -7.9% | 16.46 → 5.18 | 0.00 → 0.00 |
+| 1 KiB | 8,007,201 → 7,406,522 | -7.5% | 51.15 → 44.92 | 0.53 → 0.37 |
+| 16 KiB | 840,845 → 832,903 | -0.9% | 5.62 → 7.17 | 0.29 → 0.57 |
+| 1 MiB | 13,471 → 10,672 | -20.8% | 160.71 → 375.34 | 2.42 → 39.24 |
+
+Latency can double for large payloads but is unchanged (or improved, perhaps due to cache) for small payloads. Max throughput is lowered by 10-20% depending on payload size. Invalid data from conflicting writers are rejected.
+
+---
 
 ## License ⚖
 

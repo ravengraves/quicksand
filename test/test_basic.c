@@ -14,6 +14,85 @@
 
 #include "quicksand.h"
 
+/* Adding the version must preserve the existing shared-memory header ABI. */
+_Static_assert(sizeof(quicksand_ringbuffer) == 192, "ring header size");
+_Static_assert(offsetof(quicksand_ringbuffer, length) == 0, "length offset");
+_Static_assert(offsetof(quicksand_ringbuffer, message_size) == 8, "slot size offset");
+_Static_assert(offsetof(quicksand_ringbuffer, version) == 16, "version offset");
+_Static_assert(offsetof(quicksand_ringbuffer, reserve) == 64, "reserve offset");
+_Static_assert(offsetof(quicksand_ringbuffer, index) == 128, "index offset");
+_Static_assert(offsetof(quicksand_ringbuffer, updatestamp) == 136, "stamp offset");
+_Static_assert(offsetof(quicksand_ringbuffer, locked) == 144, "lock offset");
+
+static void test_version(void) {
+	quicksand_connection *c = NULL, *other = NULL;
+	quicksand_delete("version", -1);
+	assert(quicksand_connect(&c, "version", -1, 44, 8, NULL) == 0);
+	assert(c->buffer->version == QUICKSAND_RING_VERSION);
+	const uint32_t versions[] = {0, 2, UINT32_MAX};
+	for(size_t i = 0; i < sizeof(versions) / sizeof(versions[0]); ++i) {
+		c->buffer->version = versions[i];
+		assert(quicksand_connect(&other, "version", -1, -1, -1, NULL) == -EPROTONOSUPPORT);
+		assert(quicksand_connect(&other, "version", -1, 44, 8, NULL) == -EPROTONOSUPPORT);
+		assert(quicksand_connect(&other, "version", -1, 45, 8, NULL) == -EPROTONOSUPPORT);
+		assert(other == NULL);
+	}
+	c->buffer->version = QUICKSAND_RING_VERSION;
+	assert(quicksand_connect(&other, "version", -1, -1, -1, NULL) == 0);
+	quicksand_disconnect(&other, NULL);
+	quicksand_disconnect(&c, NULL);
+	quicksand_delete("version", -1);
+}
+
+static void test_slot_sizes(void) {
+	const int64_t sizes[] = {1, 43, 44, 45, 48, 64, 108, 109};
+	uint8_t input[192] = {0}, output[192];
+	for(size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+		quicksand_connection *c = NULL;
+		quicksand_delete("slot_sizes", -1);
+		assert(quicksand_connect(&c, "slot_sizes", -1, sizes[i], 8, NULL) == 0);
+		uint64_t stride = ((uint64_t) sizes[i] + 20 + 63) & ~UINT64_C(63);
+		assert(c->buffer->message_size == stride && stride >= 64);
+		int64_t capacity = (int64_t) stride - 20;
+		assert(quicksand_write(c, input, capacity + 1) == -EMSGSIZE);
+		assert(quicksand_write(c, input, -1) == -EMSGSIZE);
+		assert(c->buffer->reserve == 0);
+		assert(quicksand_write(c, input, capacity) == 0);
+		assert(quicksand_write(c, input, 0) == 0);
+		int64_t length = sizeof(output);
+		assert(quicksand_read(c, output, &length) == 1);
+		assert(length == capacity && memcmp(input, output, (size_t) length) == 0);
+		length = sizeof(output);
+		assert(quicksand_read(c, output, &length) == 0 && length == 0);
+		quicksand_disconnect(&c, NULL);
+		quicksand_delete("slot_sizes", -1);
+	}
+}
+
+static void test_corruption(void) {
+	quicksand_connection *c = NULL;
+	quicksand_delete("corruption", -1);
+	assert(quicksand_connect(&c, "corruption", -1, 5, 8, NULL) == 0);
+	uint8_t input[5] = {1, 2, 3, 4, 5}, output[64];
+	/* Flip every preamble, payload and (unaligned) trailer byte in turn.
+	 * Length-byte zero changes 5 to 4, exercising a valid but wrong length. */
+	for(size_t byte = 0; byte < 16 + sizeof(input) + 4; ++byte) {
+		uint64_t selected = c->read_index;
+		assert(quicksand_write(c, input, sizeof(input)) == 0);
+		assert(quicksand_write(c, input, sizeof(input)) == 0);
+		uint8_t *slot = (uint8_t *) c->buffer + sizeof(quicksand_ringbuffer)
+				+ (selected & (c->buffer->length - 1)) * c->buffer->message_size;
+		slot[byte] ^= 1;
+		int64_t length = sizeof(output);
+		assert(quicksand_read(c, output, &length) == -EBADMSG);
+		assert(length == sizeof(output) && c->read_index == selected + 1);
+		assert(quicksand_read(c, output, &length) == 0);
+		assert(length == sizeof(input) && memcmp(input, output, sizeof(input)) == 0);
+	}
+	quicksand_disconnect(&c, NULL);
+	quicksand_delete("corruption", -1);
+}
+
 static void *fail_alloc(size_t size) {
 	(void) size;
 	return NULL;
@@ -23,8 +102,8 @@ static void test_sizes(void) {
 	quicksand_connection *c = NULL;
 	// Header addition, cache-line rounding, power-of-two rounding, total size.
 	assert(quicksand_connect(&c, "size_overflow", -1, INT64_MAX, 2, NULL) == -EOVERFLOW);
-	assert(quicksand_connect(&c, "size_overflow", -1, INT64_MAX - 16, 2, NULL) == -EOVERFLOW);
-	assert(quicksand_connect(&c, "size_overflow", -1, INT64_MAX - 79, 2, NULL) == -EOVERFLOW);
+	assert(quicksand_connect(&c, "size_overflow", -1, INT64_MAX - 20, 2, NULL) == -EOVERFLOW);
+	assert(quicksand_connect(&c, "size_overflow", -1, INT64_MAX - 83, 2, NULL) == -EOVERFLOW);
 	assert(quicksand_connect(&c, "size_overflow", -1, 1, INT64_MAX, NULL) == -EOVERFLOW);
 	assert(quicksand_connect(&c, "size_overflow", -1, 1, INT64_C(1) << 62, NULL) == -EOVERFLOW);
 	assert(c == NULL);
@@ -93,6 +172,9 @@ static void test_posix_cleanup(void) {
 
 int main(void) {
 	test_sizes();
+	test_version();
+	test_slot_sizes();
+	test_corruption();
 	test_half_ring(1);
 	test_half_ring(2);
 	test_half_ring(8);

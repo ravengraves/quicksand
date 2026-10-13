@@ -1,21 +1,11 @@
 // -------------------------------------------------------------------------
 // quicksand.c - implementation of the public API
 // -------------------------------------------------------------------------
-//
-// The implementation follows the algorithm that was used in the old
-// "ravenring" code.  The only differences are:
-//   •  the names of the structs and functions,
-//   •  the way we obtain the allocator (malloc() by default),
-//   •  a small amount of defensive checking for the new API.
-//
-// Everything else (slot reservation, cursor checking, timeout handling,
-// padding to cache-line boundaries, storing the payload size in the first
-// eight bytes of a slot) is kept 100% compatible.
-// -------------------------------------------------------------------------
 
 #define _POSIX_C_SOURCE 200809L // for shm_open, ftruncate, etc.
 
 #include "quicksand.h"
+#include "quicksand_crc.h"
 #include "quicksand_style.h"
 
 #include <errno.h>
@@ -35,150 +25,6 @@
 #include <stdio.h>
 #endif
 
-
-#if defined(__GNUC__) || defined(__clang__)
-#define RESTRICT __restrict__
-#elif defined(_MSC_VER)
-#define RESTRICT __restrict
-#else
-#define RESTRICT restrict
-#endif
-
-/* Fixed-size transfers through locals are valid for arbitrary byte alignment
- * and object types. Keep each loaded value explicit for future checksum work.
- */
-static inline void fast_memcpy(unsigned char *RESTRICT d,
-			       const unsigned char *RESTRICT s, size_t n) {
-	uint64_t w0, w1, w2, w3, w4, w5, w6, w7;
-	uint32_t w8;
-	uint16_t w9;
-	size_t prefix;
-
-	/* Amortize source cache-line alignment on copies of at least 4 KiB.
-	 * The destination may have a different alignment and remains supported. */
-	if(n >= 4096) {
-		prefix = (size_t) (-(uintptr_t) s & 63);
-		n -= prefix;
-		if(prefix >= 32) {
-			memcpy(&w0, s + 0, sizeof(w0));
-			memcpy(d + 0, &w0, sizeof(w0));
-			memcpy(&w1, s + 8, sizeof(w1));
-			memcpy(d + 8, &w1, sizeof(w1));
-			memcpy(&w2, s + 16, sizeof(w2));
-			memcpy(d + 16, &w2, sizeof(w2));
-			memcpy(&w3, s + 24, sizeof(w3));
-			memcpy(d + 24, &w3, sizeof(w3));
-			d += 32;
-			s += 32;
-			prefix -= 32;
-		}
-		if(prefix >= 16) {
-			memcpy(&w0, s + 0, sizeof(w0));
-			memcpy(d + 0, &w0, sizeof(w0));
-			memcpy(&w1, s + 8, sizeof(w1));
-			memcpy(d + 8, &w1, sizeof(w1));
-			d += 16;
-			s += 16;
-			prefix -= 16;
-		}
-		if(prefix >= 8) {
-			memcpy(&w0, s + 0, sizeof(w0));
-			memcpy(d + 0, &w0, sizeof(w0));
-			d += 8;
-			s += 8;
-			prefix -= 8;
-		}
-		if(prefix >= 4) {
-			memcpy(&w8, s, sizeof(w8));
-			memcpy(d, &w8, sizeof(w8));
-			d += 4;
-			s += 4;
-			prefix -= 4;
-		}
-		if(prefix >= 2) {
-			memcpy(&w9, s, sizeof(w9));
-			memcpy(d, &w9, sizeof(w9));
-			d += 2;
-			s += 2;
-			prefix -= 2;
-		}
-		if(prefix) {
-			*d++ = *s++;
-		}
-	}
-	while(n >= 64) {
-		memcpy(&w0, s + 0, sizeof(w0));
-		memcpy(d + 0, &w0, sizeof(w0));
-		memcpy(&w1, s + 8, sizeof(w1));
-		memcpy(d + 8, &w1, sizeof(w1));
-		memcpy(&w2, s + 16, sizeof(w2));
-		memcpy(d + 16, &w2, sizeof(w2));
-		memcpy(&w3, s + 24, sizeof(w3));
-		memcpy(d + 24, &w3, sizeof(w3));
-		memcpy(&w4, s + 32, sizeof(w4));
-		memcpy(d + 32, &w4, sizeof(w4));
-		memcpy(&w5, s + 40, sizeof(w5));
-		memcpy(d + 40, &w5, sizeof(w5));
-		memcpy(&w6, s + 48, sizeof(w6));
-		memcpy(d + 48, &w6, sizeof(w6));
-		memcpy(&w7, s + 56, sizeof(w7));
-		memcpy(d + 56, &w7, sizeof(w7));
-		d += 64;
-		s += 64;
-		n -= 64;
-	}
-	if(!n) {
-		return;
-	}
-
-	/* Bounded remainder: no reads or writes past the requested length. */
-	if(n >= 32) {
-		memcpy(&w0, s + 0, sizeof(w0));
-		memcpy(d + 0, &w0, sizeof(w0));
-		memcpy(&w1, s + 8, sizeof(w1));
-		memcpy(d + 8, &w1, sizeof(w1));
-		memcpy(&w2, s + 16, sizeof(w2));
-		memcpy(d + 16, &w2, sizeof(w2));
-		memcpy(&w3, s + 24, sizeof(w3));
-		memcpy(d + 24, &w3, sizeof(w3));
-		d += 32;
-		s += 32;
-		n -= 32;
-	}
-	if(n >= 16) {
-		memcpy(&w0, s + 0, sizeof(w0));
-		memcpy(d + 0, &w0, sizeof(w0));
-		memcpy(&w1, s + 8, sizeof(w1));
-		memcpy(d + 8, &w1, sizeof(w1));
-		d += 16;
-		s += 16;
-		n -= 16;
-	}
-	if(n >= 8) {
-		memcpy(&w0, s + 0, sizeof(w0));
-		memcpy(d + 0, &w0, sizeof(w0));
-		d += 8;
-		s += 8;
-		n -= 8;
-	}
-	if(n >= 4) {
-		memcpy(&w8, s, sizeof(w8));
-		memcpy(d, &w8, sizeof(w8));
-		d += 4;
-		s += 4;
-		n -= 4;
-	}
-	if(n >= 2) {
-		memcpy(&w9, s, sizeof(w9));
-		memcpy(d, &w9, sizeof(w9));
-		d += 2;
-		s += 2;
-		n -= 2;
-	}
-	if(n) {
-		*d = *s;
-	}
-}
 
 // ---------------------------------------------------------------------
 // Helper - round a number up to a multiple of 64 (cache line)
@@ -267,10 +113,14 @@ static i64 validate_ringbuffer_layout(const quicksand_ringbuffer *rb,
 		return -EINVAL;
 	}
 
+	if(rb->version != QUICKSAND_RING_VERSION) {
+		return -EPROTONOSUPPORT;
+	}
+
 	length = rb->length;
 	message_size = rb->message_size;
 	if(length < 2 || !is_power_of_two_u64(length)
-	   || message_size < 16 || (message_size & 63)) {
+	   || message_size < 64 || (message_size & 63)) {
 		return -EINVAL;
 	}
 	if(expected_length > 0 && length != (u64) expected_length) {
@@ -393,7 +243,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		}
 
 		quicksand_ringbuffer *rb = (quicksand_ringbuffer *) addr;
-		rc = validate_ringbuffer_layout(rb, shared_memory_size, 0, 16);
+		rc = validate_ringbuffer_layout(rb, shared_memory_size, 0, 64);
 		if(rc < 0) {
 			best_effort_munmap(addr, (size_t) shared_memory_size);
 			best_effort_close(fd);
@@ -437,8 +287,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// Compute the total size of the segment.
 	//
 	//   data_offset = round_up(sizeof(quicksand_ringbuffer)) to 64-byte
-	//   padded_message = round_up(8 + message_size)   // we keep the 8-byte
-	//           // header that stores the actual payload size
+	//   padded_message = round_up(20 + message_size) // preamble + CRC
 	//   payload_area  = padded_message * message_rate   // 1-second worth
 	//   shm_size      = data_offset + payload_area
 	// ---------------------------------------------------------------
@@ -450,8 +299,8 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	i64 shm_size = 0;
 
 	// reserve enough space for 1e9 ns (1 second) of messages.
-	// padded = [write_timestamp] + [message_len] + [message]
-	rc = checked_add_i64(message_size, 16, &padded_unaligned);
+	// padded = [write_timestamp] + [message_len] + [message] + [CRC32C]
+	rc = checked_add_i64(message_size, 20, &padded_unaligned);
 	if(rc < 0) {
 		return rc;
 	}
@@ -459,7 +308,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		return -EOVERFLOW;
 	}
 	padded_msg = round_to_64(padded_unaligned);
-	if(padded_msg < 16) {
+	if(padded_msg < 64) {
 		return -EOVERFLOW;
 	}
 	// Keep at least one readable slot and one writable slot.
@@ -476,6 +325,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		return rc;
 	}
 
+	i64 mapped_size = shm_size;
 	int already_exists = 0;
 	int fd = shm_open(name_buf, O_EXCL | O_CREAT | O_RDWR,
 			  S_IRUSR | S_IWUSR);
@@ -491,10 +341,11 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 			best_effort_close(fd);
 			return rc;
 		}
-		if(sb.st_size != shm_size) { // Abort if size does not match
+		if(sb.st_size < (off_t) sizeof(quicksand_ringbuffer)) {
 			best_effort_close(fd);
 			return -EINVAL; // too small
 		}
+		mapped_size = (i64) sb.st_size;
 		already_exists = 1;
 	}
 	if(fd == -1) {
@@ -511,7 +362,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		}
 	}
 
-	void *addr = mmap(NULL, (size_t) shm_size, PROT_READ | PROT_WRITE,
+	void *addr = mmap(NULL, (size_t) mapped_size, PROT_READ | PROT_WRITE,
 			  MAP_SHARED, fd, 0);
 	if(addr == MAP_FAILED) {
 		rc = -errno;
@@ -530,15 +381,19 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	if(!already_exists) {
 		rb->length = ring_length;
 		rb->message_size = padded_msg;
+		rb->version = QUICKSAND_RING_VERSION;
 		atomic_store_explicit(&rb->reserve, 0, memory_order_relaxed);
 		atomic_store_explicit(&rb->index, 0, memory_order_relaxed);
 		atomic_store_explicit(&rb->updatestamp, 0, memory_order_relaxed);
 		atomic_store_explicit(&rb->locked, 0, memory_order_relaxed);
 	}
-	rc = validate_ringbuffer_layout(rb, (u64) shm_size, ring_length,
+	rc = validate_ringbuffer_layout(rb, (u64) mapped_size, ring_length,
 					padded_msg);
+	if(rc == 0 && mapped_size != shm_size) {
+		rc = -EINVAL;
+	}
 	if(rc < 0) {
-		best_effort_munmap(addr, (size_t) shm_size);
+		best_effort_munmap(addr, (size_t) mapped_size);
 		best_effort_close(fd);
 		if(!already_exists) {
 			best_effort_shm_unlink(name_buf);
@@ -547,7 +402,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	}
 
 	if(!out) {
-		best_effort_munmap(addr, (size_t) shm_size);
+		best_effort_munmap(addr, (size_t) mapped_size);
 		best_effort_close(fd);
 		return 0;
 	}
@@ -557,7 +412,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		connection = allocate(sizeof(quicksand_connection));
 	}
 	if(!connection) {
-		best_effort_munmap(addr, (size_t) shm_size);
+		best_effort_munmap(addr, (size_t) mapped_size);
 		best_effort_close(fd);
 		if(!already_exists) {
 			best_effort_shm_unlink(name_buf);
@@ -662,7 +517,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	if(!rb) {
 		return -EPIPE; // uninitialised
 	}
-	rc = validate_ringbuffer_layout(rb, c->shared_memory_size, 0, 16);
+	rc = validate_ringbuffer_layout(rb, c->shared_memory_size, 0, 64);
 	if(rc < 0) {
 		return -EBADMSG;
 	}
@@ -678,7 +533,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	}
 
 
-	if(msg_len < 0 || (u64) msg_len > slot_size - 16) {
+	if(msg_len < 0 || (u64) msg_len > slot_size - 20) {
 		return -EMSGSIZE; // message does not fit
 	}
 
@@ -711,9 +566,13 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	u8 *base = (u8 *) rb;
 	u8 *slot_ptr = base + data_offset + slot * slot_size;
 
-	*((u64 *) slot_ptr) = quicksand_now();
-	*((i64 *) (slot_ptr + 8)) = msg_len;
-	fast_memcpy(slot_ptr + 16, msg, (u64) msg_len);
+	u8 preamble[16];
+	u64 timestamp = quicksand_now();
+	memcpy(preamble, &timestamp, sizeof(timestamp));
+	memcpy(preamble + 8, &msg_len, sizeof(msg_len));
+	uint32_t crc = fast_memcpy_crc32c(slot_ptr, preamble, sizeof(preamble), 0);
+	crc = fast_memcpy_crc32c(slot_ptr + 16, msg, (size_t) msg_len, crc);
+	memcpy(slot_ptr + 16 + msg_len, &crc, sizeof(crc));
 
 	// -----------------------------------------------------------------
 	// 4. Wait to advance index
@@ -747,7 +606,7 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	if(!rb) {
 		return -EPIPE; // not initialized
 	}
-	rc = validate_ringbuffer_layout(rb, c->shared_memory_size, 0, 16);
+	rc = validate_ringbuffer_layout(rb, c->shared_memory_size, 0, 64);
 	if(rc < 0) {
 		return -EBADMSG;
 	}
@@ -805,22 +664,28 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	// -----------------------------------------------------------------
 	// 6. Read the timestamp and size that the writer stored at front
 	// -----------------------------------------------------------------
-	// u64 payload_stamp = *((u64 *) slot_ptr); // unused
-	i64 payload_len = *((i64 *) (slot_ptr + 8));
-	if(payload_len < 0 || (u64) payload_len > slot_size - 16) {
-		// Corrupted size - treat as no-data
+	u64 preamble[2];
+	uint32_t crc = fast_memcpy_crc32c((u8 *) preamble, slot_ptr, sizeof(preamble), 0);
+	i64 payload_len = (i64) preamble[1];
+	if(payload_len < 0 || (u64) payload_len > slot_size - 20) {
+		// Corrupted size: consume the message without accessing its payload.
 		return -EBADMSG;
 	}
 
 	// -----------------------------------------------------------------
-	// 7. Copy to the buffer supplied by the caller.
+	// 7. Copy message length to the buffer supplied by the caller.
 	// ----------------------------------------------------------------
 	if(*msg_len < payload_len) {
 		--c->read_index; // Keep the selected message available for retry.
 		return -EINVAL;	 // too short
 	}
 
-	fast_memcpy(msg, slot_ptr + 16, payload_len);
+	crc = fast_memcpy_crc32c(msg, slot_ptr + 16, (size_t) payload_len, crc);
+	uint32_t stored_crc;
+	memcpy(&stored_crc, slot_ptr + 16 + payload_len, sizeof(stored_crc));
+	if(crc != stored_crc) {
+		return -EBADMSG;
+	}
 	*msg_len = payload_len; // tell the caller how many bytes we wrote
 
 	// Return the number of messages still pending after we consumed one.

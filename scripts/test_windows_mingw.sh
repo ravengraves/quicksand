@@ -27,7 +27,7 @@ mkdir -p "$BUILD_DIR/test"
 	"$BUILD_DIR/quicksand.o" "$BUILD_DIR/time.o" "$BUILD_DIR/timestamp.o" \
 	-Wl,--out-implib,"$BUILD_DIR/libquicksand.dll.a"
 
-for t in test_basic test_pub test_sub; do
+for t in test_copy test_basic test_pub test_sub; do
 	"$CC" "${COMMON_FLAGS[@]}" "$ROOT/test/${t}.c" "$BUILD_DIR/libquicksand.a" -o "$BUILD_DIR/test/${t}.exe"
 done
 

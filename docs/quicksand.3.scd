@@ -43,7 +43,9 @@ inline helper in _quicksand.h_.
 	*strlen*(3). Readers typically pass -1 for both _message_size_ and
 	_message_rate_ to attach to an existing topic. Creation rounds capacity
 	up to a power of two with at least two slots. Unrepresentable allocation
-	sizes return -EOVERFLOW.
+	sizes return -EOVERFLOW. Slots reserve a 16-byte preamble and a 4-byte
+	CRC-32C trailer, rounded up to at least 64 bytes. Incompatible ring
+	versions return -EPROTONOSUPPORT.
 
 *quicksand_disconnect*()
 	Unmap shared memory and release the connection object.
@@ -60,12 +62,24 @@ inline helper in _quicksand.h_.
 	of remaining unread messages, -1 when no message is available, or a
 	negative error code. If the output buffer is too small, returns -EINVAL
 	without consuming the selected message. Retry with a larger buffer;
-	the usual overwrite and reader-lag policy still applies.
+	the usual overwrite and reader-lag policy still applies. Corrupt lengths
+	or CRC-32C mismatches return -EBADMSG and consume the selected message.
+	On failure the caller's length is unchanged; discard any output bytes.
 
 *quicksand_now*(), *quicksand_ns*(), *quicksand_ns_calibrate*(),
 *quicksand_sleep*()
 	Low-level timing helpers used by Quicksand and by latency-sensitive
 	callers.
+
+# PROTOCOL UPGRADES
+
+Ring version 1 stores a version marker in existing ring-header padding. Message
+slots retain the 16-byte timestamp/length preamble followed by the payload and a
+4-byte CRC-32C trailer. The checksum covers the preamble and every payload byte.
+
+Stop all old processes and recreate topics during an upgrade. Old binaries do
+not reliably reject this format. CRC provides error detection, not synchronization
+or guaranteed overwrite detection; existing memory orders are unchanged.
 
 # EXAMPLE
 

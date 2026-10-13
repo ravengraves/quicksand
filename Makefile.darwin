@@ -143,13 +143,15 @@ python: $(LIB_SHARED)
 clean:
 	rm -rf $(BUILD_DIR)
 
-$(BUILD_DIR)/test/copy: src/quicksand.c src/quicksand+windows.c include/quicksand.h include/quicksand_style.h
+$(BUILD_DIR)/quicksand.o: src/quicksand_crc.h include/quicksand.h include/quicksand_style.h
+
+$(BUILD_DIR)/test/copy: src/quicksand_crc.h
 
 .PHONY: bench-copy
 bench-copy: $(BUILD_DIR)/test/bench_copy
 	./$(BUILD_DIR)/test/bench_copy
 
-$(BUILD_DIR)/test/bench_copy: test/bench_copy.c src/quicksand.c src/quicksand+windows.c include/quicksand.h include/quicksand_style.h $(LIB_STATIC) | $(BUILD_DIR)/test
+$(BUILD_DIR)/test/bench_copy: test/bench_copy.c src/quicksand_crc.h $(LIB_STATIC) | $(BUILD_DIR)/test
 	$(CC) $(CPPFLAGS) $(CFLAGS) $< $(LIB_STATIC) $(LDFLAGS) $(LDLIBS) -o $@
 
 .PHONY: bench-transport

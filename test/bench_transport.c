@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "quicksand.h"
+#include <errno.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -13,6 +14,7 @@ struct test {
 	uint64_t start, end;
 	_Alignas(64) uint64_t sent;
 	_Alignas(64) uint64_t received;
+	uint64_t rejected;
 	double latency;
 	_Alignas(64) atomic_int ready, go, done;
 };
@@ -60,6 +62,8 @@ static void *read_messages(void *arg) {
 			check(size == (int64_t) t->size, "read size");
 			t->latency += quicksand_ns(received, sent);
 			++t->received;
+		} else if(rc == -EBADMSG) {
+			++t->rejected;
 		} else {
 			check(rc == -1, "read");
 			if(finished) {
@@ -86,7 +90,7 @@ int main(void) {
 		snprintf(topic, sizeof(topic), "qs_bench_%ld_%zu", (long) getpid(), t.size);
 		/* Largest power-of-two capacity fitting within 32 MiB, including metadata. */
 		size_t header = (sizeof(quicksand_ringbuffer) + 63) & ~(size_t) 63;
-		size_t stride = (t.size + 16 + 63) & ~(size_t) 63;
+		size_t stride = (t.size + 20 + 63) & ~(size_t) 63;
 		int64_t slots = 2;
 		while(header + (size_t) slots * 2 * stride <= 32 * 1024 * 1024) {
 			slots *= 2;
@@ -108,9 +112,9 @@ int main(void) {
 		check(t.received != 0, "no messages received");
 		double elapsed = quicksand_ns(t.end, t.start);
 		int64_t rate = (int64_t) (t.received * 1e9 / elapsed);
-		printf("%zuB: %" PRId64 " msgs/s, %.2f ns/msg, %.2f ns latency, %.2f%% skip\n",
+		printf("%zuB: %" PRId64 " msgs/s, %.2f ns/msg, %.2f ns latency, %.2f%% skip, %" PRIu64 " CRC rejects\n",
 		       t.size, rate, elapsed / t.received, t.latency / t.received,
-		       100.0 * (t.sent - t.received) / t.sent);
+		       100.0 * (t.sent - t.received) / t.sent, t.rejected);
 		quicksand_disconnect(&t.reader, NULL);
 		quicksand_disconnect(&t.writer, NULL);
 	}
