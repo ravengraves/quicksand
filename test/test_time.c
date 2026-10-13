@@ -7,20 +7,20 @@
 #include "quicksand.h"
 
 int main(void) {
-	quicksand_ns_calibrate(1e6); // 1 millisecond
-
 	double mean = 0.0;
 	double mean_unix = 0.0;
 
 	struct timespec start_ts, stop_ts;
 	uint64_t start, stop;
 
-	// warmup
+	// Sleep must initialize the timer without an earlier calibration call.
 	clock_gettime(CLOCK_MONOTONIC, &start_ts);
 	start = quicksand_now();
 	quicksand_sleep(10e3);
 	stop = quicksand_now();
 	clock_gettime(CLOCK_MONOTONIC, &stop_ts);
+	assert((double) (stop_ts.tv_sec - start_ts.tv_sec) * 1e9
+			+ (double) (stop_ts.tv_nsec - start_ts.tv_nsec) >= 10e3);
 	quicksand_ns(stop, start);
 	assert(quicksand_ns(stop, start) - fabs(quicksand_ns(start, stop)) < 1e-12);
 	assert(quicksand_ns(stop, start) > 0);

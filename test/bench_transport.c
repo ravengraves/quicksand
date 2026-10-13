@@ -30,6 +30,7 @@ static uint8_t *prepare(struct test *t) {
 	uint8_t *message = malloc(t->size);
 	check(message != NULL, "malloc");
 	memset(message, 0, t->size);
+	quicksand_ns_calibrate(10000000); // Calibrate this thread before timing.
 	atomic_fetch_add(&t->ready, 1);
 	while(!atomic_load(&t->go)) {}
 	return message;

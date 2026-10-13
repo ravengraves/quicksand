@@ -9,9 +9,9 @@
 #include "quicksand.h"
 #include "quicksand_style.h"
 
-// static calibration value for timer
-static volatile f64 NS_PER_TICK = 0.0;
-static volatile f64 TICK_PER_NS = 0.0;
+// Each thread calibrates its own timer on first use.
+static _Thread_local f64 NS_PER_TICK = 0.0;
+static _Thread_local f64 TICK_PER_NS = 0.0;
 
 extern u64 quicksand_now(void);
 
@@ -79,6 +79,9 @@ f64 quicksand_ns_calibrate(f64 nanoseconds) {
 void quicksand_sleep(f64 nanoseconds) {
 	if(nanoseconds < 0.0) {
 		return;
+	}
+	if(TICK_PER_NS <= 0.0) {
+		quicksand_ns_calibrate(1e6); // delay for 1 millisecond
 	}
 	u64 start = quicksand_now();
 	u64 end = start + (u64) (TICK_PER_NS * nanoseconds);
