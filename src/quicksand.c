@@ -585,7 +585,11 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	}
 
 	atomic_store_explicit(&rb->updatestamp, quicksand_now(), memory_order_relaxed);
-	atomic_store_explicit(&rb->index, my_reserve + 1, memory_order_release);
+	// Recovery may have overtaken us after the wait; never roll index back.
+	if(!atomic_compare_exchange_strong_explicit(&rb->index, &my_reserve,
+						    my_reserve + 1, memory_order_release, memory_order_relaxed)) {
+		return -ETIMEDOUT;
+	}
 
 	return 0;
 }

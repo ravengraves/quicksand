@@ -213,6 +213,12 @@ The caller's length stays unchanged on failure; discard any copied bytes.
 An undersized output buffer still returns `-EINVAL` without consuming the selected
 message, allowing retry subject to the usual overwrite/lag policy.
 
+Publication uses second compare-and-exchange to prevent delayed writers 
+from moving the index backward after timeout recovery. 
+An overtaken writer returns `-ETIMEDOUT`. 
+This checks the index, not a reservation generation; 
+recovery that reuses an unchanged index is not detected by this check.
+
 The private copy helper uses four 128-bit streams when the compile target enables
 x86-64 SSE4.2/PCLMUL or little-endian AArch64 NEON/PMULL/CRC. Other targets use a
 static slicing-by-4 tables (4 KiB total) with fused four-byte copying and a

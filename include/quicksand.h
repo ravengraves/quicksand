@@ -156,7 +156,9 @@ void quicksand_delete(char *topic, int64_t topic_length);
  *  @param message      Pointer to the message data to write.
  *  @param message_size Size of the data to write in bytes.
  *
- *  @return 0 on success, or a negative error code on failure.
+ *  @return 0 on success, or a negative error code on failure. -ETIMEDOUT
+ *          reports a reservation overtaken by timeout recovery before
+ *          publication.
  */
 int64_t quicksand_write(quicksand_connection *connection, uint8_t *message,
 			int64_t message_size);
@@ -200,6 +202,8 @@ uint64_t quicksand_now(void);
 
 /** @brief Compute elapsed nanoseconds between two timestamps.
  *
+ *  Calibrates the calling thread's timer on first use.
+ *
  *  @param final_timestamp   Timestamp at the end of the interval.
  *  @param initial_timestamp Timestamp at the beginning of the interval.
  *
@@ -211,7 +215,7 @@ double quicksand_ns(uint64_t final_timestamp, uint64_t initial_timestamp);
  *
  *  The function sleeps for the specified amount of nanoseconds while
  *  measuring the CPU ticks to determine the conversion factor from ticks
- *  to nanoseconds.
+ *  to nanoseconds. Calibration applies only to the calling thread.
  *
  *  @param nanoseconds Amount of time to sleep during calibration.
  *
@@ -222,7 +226,8 @@ double quicksand_ns_calibrate(double nanoseconds);
 /** @brief Busy-wait or sleep for the specified number of nanoseconds.
  *
  *  For durations less than 100 µs a busy loop is used; otherwise the
- *  function yields to the scheduler.
+ *  function yields to the scheduler. Calibrates the calling thread's timer
+ *  on first use, before starting the requested wait.
  *
  *  @param nanoseconds Amount of time to sleep or busy-loop.
  */

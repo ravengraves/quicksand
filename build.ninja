@@ -35,7 +35,7 @@ rule link_exe
   command = $cc $cppflags $cflags -o $out $in $ldflags $ldlibs
 
 rule run_check
-  command = ./build/test/basic && ./build/test/time && touch $out
+  command = ./build/test/basic && ./build/test/recovery && ./build/test/time && touch $out
 
 rule copy_docs
   command = mkdir -p build/docs && cp $in build/docs/ && touch $out
@@ -79,6 +79,7 @@ build build/libquicksand.so: link_shared build/quicksand.o build/time.o build/ti
 build build/libquicksand.a: archive build/quicksand.o build/time.o build/timestamp.o
 
 build build/test/basic: link_exe test/test_basic.c build/libquicksand.a | build/test
+build build/test/recovery: link_exe test/test_recovery.c build/libquicksand.a | build/test
 build build/test/time: link_exe test/test_time.c build/libquicksand.a | build/test
 build build/test/pub: link_exe test/test_pub.c build/libquicksand.a | build/test
 build build/test/sub: link_exe test/test_sub.c build/libquicksand.a | build/test
@@ -106,7 +107,7 @@ build build/.sanitize_check.stamp: delegate_make | build
 build build/.analysis.stamp: delegate_make | build
   target = analysis
 
-build all: phony build/libquicksand.so build/libquicksand.a build/test/basic build/test/time build/test/pub build/test/sub
+build all: phony build/libquicksand.so build/libquicksand.a build/test/basic build/test/recovery build/test/time build/test/pub build/test/sub
 build check: phony build/.check.stamp
 build clean: phony .ninja-clean.stamp
 build docs: phony build/docs/.stamp build/docs/quicksand.3

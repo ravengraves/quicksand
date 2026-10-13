@@ -55,7 +55,8 @@ inline helper in _quicksand.h_.
 
 *quicksand_write*()
 	Write one message to the ring buffer. Returns 0 on success or a negative
-	error code.
+	error code. Returns -ETIMEDOUT if timeout recovery overtakes the writer's
+	reservation before publication.
 
 *quicksand_read*()
 	Read the next available message into the caller buffer. Returns the number

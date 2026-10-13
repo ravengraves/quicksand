@@ -49,6 +49,8 @@ build $builddir/libquicksand.dll: link_dll $builddir/quicksand.o $builddir/time.
 
 build $builddir/test_basic.exe: link_exe test/test_basic.c
   lib = $builddir/libquicksand.a
+build $builddir/test_recovery.exe: link_exe test/test_recovery.c
+  lib = $builddir/libquicksand.a
 build $builddir/test_time.exe: link_exe test/test_time.c
   lib = $builddir/libquicksand.a
 build $builddir/test_pub.exe: link_exe test/test_pub.c
@@ -71,7 +73,7 @@ build include/quicksand_style.h: copy_install include/quicksand_style.h
 build lib/pkgconfig/quicksand.pc: copy_install $builddir/quicksand.pc
   destdir = lib/pkgconfig
 
-build all: phony $builddir/libquicksand.a $builddir/libquicksand.dll $builddir/test_basic.exe $builddir/test_time.exe $builddir/test_pub.exe $builddir/test_sub.exe
+build all: phony $builddir/libquicksand.a $builddir/libquicksand.dll $builddir/test_basic.exe $builddir/test_recovery.exe $builddir/test_time.exe $builddir/test_pub.exe $builddir/test_sub.exe
 build dll: phony $builddir/libquicksand.dll
 build install: phony lib/libquicksand.a lib/libquicksand.dll lib/libquicksand.dll.a include/quicksand.h include/quicksand_style.h lib/pkgconfig/quicksand.pc
 

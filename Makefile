@@ -53,7 +53,7 @@ endif
 
 LIB_OBJECTS := $(BUILD_DIR)/quicksand.o $(BUILD_DIR)/time.o $(BUILD_DIR)/timestamp.o
 
-TEST_SOURCES := test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
+TEST_SOURCES := test/test_basic.c test/test_recovery.c test/test_time.c test/test_pub.c test/test_sub.c
 TEST_BINS := $(patsubst test/test_%.c,$(BUILD_DIR)/test/%,$(TEST_SOURCES))
 ANALYZE_SOURCES := src/quicksand.c src/time.c $(TEST_SOURCES)
 TIMESTAMP_CFLAGS := $(filter-out $(SANITIZER_CFLAGS),$(CFLAGS))
@@ -88,8 +88,9 @@ $(BUILD_DIR)/test/%: test/test_%.c $(LIB_STATIC) | $(BUILD_DIR)/test
 
 test: $(TEST_BINS)
 
-check-runtime: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
+check-runtime: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/recovery $(BUILD_DIR)/test/time
 	./$(BUILD_DIR)/test/basic
+	./$(BUILD_DIR)/test/recovery
 	./$(BUILD_DIR)/test/time
 
 check-analysis: compile_commands.json
