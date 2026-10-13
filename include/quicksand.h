@@ -101,7 +101,8 @@ typedef struct {
  *  @param message_size Maximum size per message in bytes; pass @c -1 to use
  *                      the default size specified by the buffer.
  *  @param message_rate Maximum number of messages per second; pass @c -1 to
- *                      use the default rate specified by the buffer.
+ *                      use the default rate specified by the buffer. Creation rounds
+ *                      capacity up to a power of two, with at least two slots.
  *  @param alloc        Custom allocator that follows @c malloc(size_t)
  *                      semantics, or @c NULL to use the system allocator.
  *
@@ -127,8 +128,9 @@ void quicksand_disconnect(quicksand_connection **connection, void *dealloc);
 /** @brief Delete a topic, freeing it for recreation.
  *
  *  This removes the shared memory segment identified by @p topic, making it
- *  possible to create a fresh buffer with the same name later on.  All
- *  existing connections to that topic will become invalid.
+ *  possible to create a fresh buffer with the same name later on.  Existing
+ *  connections retain their old mapping until disconnected; a newly created
+ *  topic with the same name is separate.
  *
  *  @param topic        Shared memory segment name.
  *  @param topic_length Length of the name in bytes (excluding the null);
@@ -166,7 +168,9 @@ int64_t quicksand_write(quicksand_connection *connection, uint8_t *message,
  *                      number of bytes actually read.
  *
  *  @return Number of messages remaining in the buffer, or -1 if no message
- *          was read.  The function returns -1 also on error.
+ *          was read, or a negative errno on error. A buffer that is too small
+ *          returns -EINVAL without consuming the selected message; retry with
+ *          a larger buffer, subject to the usual overwrite/lag policy.
  */
 int64_t quicksand_read(quicksand_connection *connection, uint8_t *message,
 		       int64_t *message_size);
@@ -232,7 +236,9 @@ static inline double quicksand_elapsed(uint64_t initial_timestamp) {
  *  @return Number of unread messages.
  */
 static inline uint64_t quicksand_read_remaining(quicksand_connection *connection) {
-	return connection->read_index - connection->buffer->index;
+	/* Relaxed polling snapshot; no payload synchronization is implied. */
+	return atomic_load_explicit(&connection->buffer->index, memory_order_relaxed)
+			- connection->read_index;
 }
 
 /** @brief Read the most recent message if new messages are available.
@@ -250,9 +256,10 @@ static inline uint64_t quicksand_read_remaining(quicksand_connection *connection
  */
 static inline int64_t quicksand_read_latest(quicksand_connection *connection,
 					    uint8_t *message, int64_t *message_size) {
-	/* Return last message if new messages are available */
-	if(connection->read_index < connection->buffer->index) {
-		connection->read_index = connection->buffer->index - 1;
+	/* Use a single relaxed polling snapshot to select the latest message. */
+	uint64_t index = atomic_load_explicit(&connection->buffer->index, memory_order_relaxed);
+	if(connection->read_index < index) {
+		connection->read_index = index - 1;
 		return quicksand_read(connection, message, message_size);
 	}
 	return -1;

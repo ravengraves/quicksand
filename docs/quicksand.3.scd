@@ -41,7 +41,9 @@ inline helper in _quicksand.h_.
 *quicksand_connect*()
 	Create or attach to a topic. Pass _topic_length_ as -1 to use
 	*strlen*(3). Readers typically pass -1 for both _message_size_ and
-	_message_rate_ to attach to an existing topic.
+	_message_rate_ to attach to an existing topic. Creation rounds capacity
+	up to a power of two with at least two slots. Unrepresentable allocation
+	sizes return -EOVERFLOW.
 
 *quicksand_disconnect*()
 	Unmap shared memory and release the connection object.
@@ -55,7 +57,10 @@ inline helper in _quicksand.h_.
 
 *quicksand_read*()
 	Read the next available message into the caller buffer. Returns the number
-	of remaining unread messages, or -1 when no message was read.
+	of remaining unread messages, -1 when no message is available, or a
+	negative error code. If the output buffer is too small, returns -EINVAL
+	without consuming the selected message. Retry with a larger buffer;
+	the usual overwrite and reader-lag policy still applies.
 
 *quicksand_now*(), *quicksand_ns*(), *quicksand_ns_calibrate*(),
 *quicksand_sleep*()

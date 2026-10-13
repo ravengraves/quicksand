@@ -32,37 +32,142 @@
 #elif defined(_MSC_VER)
 #define RESTRICT __restrict
 #else
-#define RESTRICT
+#define RESTRICT restrict
 #endif
 
-// memcpy(dest, src, bytes);
-static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n) {
-	u64 i = 0;
-	for(; i + 64 <= n; i += 64) {
-		u64 *dstptr = (u64 *) (dest + i);
-		const u64 *srcptr = (const u64 *) (src + i);
-		dstptr[0] = srcptr[0];
-		dstptr[1] = srcptr[1];
-		dstptr[2] = srcptr[2];
-		dstptr[3] = srcptr[3];
-		dstptr[4] = srcptr[4];
-		dstptr[5] = srcptr[5];
-		dstptr[6] = srcptr[6];
-		dstptr[7] = srcptr[7];
+/* Fixed-size transfers through locals are valid for arbitrary byte alignment
+ * and object types. Keep each loaded value explicit for future checksum work.
+ */
+static inline void fast_memcpy(unsigned char *RESTRICT d,
+			       const unsigned char *RESTRICT s, size_t n) {
+	uint64_t w0, w1, w2, w3, w4, w5, w6, w7;
+	uint32_t w8;
+	uint16_t w9;
+	size_t prefix;
+
+	/* Amortize source cache-line alignment on copies of at least 4 KiB.
+	 * The destination may have a different alignment and remains supported. */
+	if(n >= 4096) {
+		prefix = (size_t) (-(uintptr_t) s & 63);
+		n -= prefix;
+		if(prefix >= 32) {
+			memcpy(&w0, s + 0, sizeof(w0));
+			memcpy(d + 0, &w0, sizeof(w0));
+			memcpy(&w1, s + 8, sizeof(w1));
+			memcpy(d + 8, &w1, sizeof(w1));
+			memcpy(&w2, s + 16, sizeof(w2));
+			memcpy(d + 16, &w2, sizeof(w2));
+			memcpy(&w3, s + 24, sizeof(w3));
+			memcpy(d + 24, &w3, sizeof(w3));
+			d += 32;
+			s += 32;
+			prefix -= 32;
+		}
+		if(prefix >= 16) {
+			memcpy(&w0, s + 0, sizeof(w0));
+			memcpy(d + 0, &w0, sizeof(w0));
+			memcpy(&w1, s + 8, sizeof(w1));
+			memcpy(d + 8, &w1, sizeof(w1));
+			d += 16;
+			s += 16;
+			prefix -= 16;
+		}
+		if(prefix >= 8) {
+			memcpy(&w0, s + 0, sizeof(w0));
+			memcpy(d + 0, &w0, sizeof(w0));
+			d += 8;
+			s += 8;
+			prefix -= 8;
+		}
+		if(prefix >= 4) {
+			memcpy(&w8, s, sizeof(w8));
+			memcpy(d, &w8, sizeof(w8));
+			d += 4;
+			s += 4;
+			prefix -= 4;
+		}
+		if(prefix >= 2) {
+			memcpy(&w9, s, sizeof(w9));
+			memcpy(d, &w9, sizeof(w9));
+			d += 2;
+			s += 2;
+			prefix -= 2;
+		}
+		if(prefix) {
+			*d++ = *s++;
+		}
 	}
-	for(; i + 32 <= n; i += 32) {
-		u64 *dstptr = (u64 *) (dest + i);
-		const u64 *srcptr = (const u64 *) (src + i);
-		dstptr[0] = srcptr[0];
-		dstptr[1] = srcptr[1];
-		dstptr[2] = srcptr[2];
-		dstptr[3] = srcptr[3];
+	while(n >= 64) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		memcpy(&w1, s + 8, sizeof(w1));
+		memcpy(d + 8, &w1, sizeof(w1));
+		memcpy(&w2, s + 16, sizeof(w2));
+		memcpy(d + 16, &w2, sizeof(w2));
+		memcpy(&w3, s + 24, sizeof(w3));
+		memcpy(d + 24, &w3, sizeof(w3));
+		memcpy(&w4, s + 32, sizeof(w4));
+		memcpy(d + 32, &w4, sizeof(w4));
+		memcpy(&w5, s + 40, sizeof(w5));
+		memcpy(d + 40, &w5, sizeof(w5));
+		memcpy(&w6, s + 48, sizeof(w6));
+		memcpy(d + 48, &w6, sizeof(w6));
+		memcpy(&w7, s + 56, sizeof(w7));
+		memcpy(d + 56, &w7, sizeof(w7));
+		d += 64;
+		s += 64;
+		n -= 64;
 	}
-	for(; i + 8 <= n; i += 8) {
-		*(u64 *) (dest + i) = *(const u64 *) (src + i);
+	if(!n) {
+		return;
 	}
-	for(; i < n; i += 1) {
-		dest[i] = src[i];
+
+	/* Bounded remainder: no reads or writes past the requested length. */
+	if(n >= 32) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		memcpy(&w1, s + 8, sizeof(w1));
+		memcpy(d + 8, &w1, sizeof(w1));
+		memcpy(&w2, s + 16, sizeof(w2));
+		memcpy(d + 16, &w2, sizeof(w2));
+		memcpy(&w3, s + 24, sizeof(w3));
+		memcpy(d + 24, &w3, sizeof(w3));
+		d += 32;
+		s += 32;
+		n -= 32;
+	}
+	if(n >= 16) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		memcpy(&w1, s + 8, sizeof(w1));
+		memcpy(d + 8, &w1, sizeof(w1));
+		d += 16;
+		s += 16;
+		n -= 16;
+	}
+	if(n >= 8) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		d += 8;
+		s += 8;
+		n -= 8;
+	}
+	if(n >= 4) {
+		memcpy(&w8, s, sizeof(w8));
+		memcpy(d, &w8, sizeof(w8));
+		d += 4;
+		s += 4;
+		n -= 4;
+	}
+	if(n >= 2) {
+		memcpy(&w9, s, sizeof(w9));
+		memcpy(d, &w9, sizeof(w9));
+		d += 2;
+		s += 2;
+		n -= 2;
+	}
+	if(n) {
+		*d = *s;
 	}
 }
 
@@ -80,6 +185,9 @@ static inline i64 round_to_64(i64 v) {
 static inline i64 round_to_pow2(i64 v) {
 	i64 res = 1;
 	while(res < v) {
+		if(res > INT64_MAX / 2) {
+			return -1;
+		}
 		res = res << 1;
 	}
 	return res;
@@ -97,7 +205,7 @@ static void copy_topic_to_name(quicksand_connection *c, const char *topic,
 		copy_len = sizeof(c->name);
 	}
 
-	fast_memcpy(c->name, (u8 *) topic, copy_len);
+	memcpy(c->name, topic, copy_len);
 }
 
 // ---------------------------------------------------------------------
@@ -121,7 +229,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// ---------------------------------------------------------------
 	void *(*allocate)(size_t) = malloc;
 	if(alloc) {
-		allocate = (void *(*) (size_t)) alloc;
+		allocate = (void *(*) (size_t) ) alloc;
 	}
 
 	// ---------------------------------------------------------------
@@ -156,7 +264,9 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		quicksand_ringbuffer *rb = (quicksand_ringbuffer *) addr;
 
 		// sanity-check the meta-data
-		if(rb->length > (u64) 1e12 || rb->message_size > (u64) 1e12) {
+		if(rb->length < 2 || (rb->length & (rb->length - 1))
+		   || rb->length > (u64) 1e12 || rb->message_size > (u64) 1e12
+		   || rb->message_size < 16 || (rb->message_size & 63)) {
 			UnmapViewOfFile(addr);
 			CloseHandle(hMap);
 			return -EINVAL;
@@ -199,17 +309,21 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	i64 data_offset = round_to_64((i64) sizeof(quicksand_ringbuffer));
 
 	// reserve enough space for 1e9 ns (1 second) of messages.
-	i64 padded_msg = round_to_64(16 + message_size);
-	i64 ring_length = round_to_pow2(message_rate);
-	i64 payload_area = padded_msg * ring_length;
-	if(padded_msg < 0 || payload_area < 0) {
-		return -EINVAL;
-	}
-
-	i64 shm_size = data_offset + payload_area;
-	if(shm_size > (i64) INT64_MAX) {
+	if(message_size > INT64_MAX - 16) {
 		return -EOVERFLOW;
 	}
+	i64 padded_unaligned = message_size + 16;
+	if(padded_unaligned > INT64_MAX - 63) {
+		return -EOVERFLOW;
+	}
+	i64 padded_msg = round_to_64(padded_unaligned);
+	// Keep at least one readable slot and one writable slot.
+	i64 ring_length = round_to_pow2(message_rate < 2 ? 2 : message_rate);
+	if(ring_length <= 0 || padded_msg > (INT64_MAX - data_offset) / ring_length) {
+		return -EOVERFLOW;
+	}
+	i64 payload_area = padded_msg * ring_length;
+	i64 shm_size = data_offset + payload_area;
 
 	HANDLE hMap = CreateFileMappingA(
 			INVALID_HANDLE_VALUE,
@@ -364,7 +478,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	}
 
 
-	if(msg_len < 0 || msg_len > ((i64) rb->message_size) - 8) {
+	if(msg_len < 0 || msg_len > ((i64) rb->message_size) - 16) {
 		return -EMSGSIZE; // message does not fit
 	}
 
@@ -383,7 +497,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	// 2. Block until reserve < 50% away from index
 	// -----------------------------------------------------------------
 	while(my_reserve - atomic_load_explicit(&rb->index, memory_order_relaxed)
-	      > rb->length / 2) {
+	      >= rb->length / 2) {
 		if(quicksand_ns(quicksand_now(), start_time) > QUICKSAND_TIMEOUT / 2) {
 			atomic_store_explicit(&rb->locked, quicksand_now(), memory_order_relaxed);
 			return -ETIMEDOUT;
@@ -433,8 +547,7 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 
 	// -----------------------------------------------------------------
 	// 1. Load the current write index (the slot that *has* been
-	//    committed).  We need an acquire load because the writer
-	//    released the store after writing the data.
+	//    committed). Keep this polling load relaxed by design.
 	// -----------------------------------------------------------------
 	u64 write_cursor = atomic_load_explicit(&rb->index,
 						memory_order_relaxed);
@@ -491,7 +604,8 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	// 7. Copy to the buffer supplied by the caller.
 	// ----------------------------------------------------------------
 	if(*msg_len < payload_len) {
-		return -EINVAL; // too short
+		--c->read_index; // Keep the selected message available for retry.
+		return -EINVAL;	 // too short
 	}
 	fast_memcpy(msg, slot_ptr + 16, (size_t) payload_len);
 	*msg_len = payload_len; // tell the caller how many bytes we wrote

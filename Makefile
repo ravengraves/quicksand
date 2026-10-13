@@ -51,7 +51,7 @@ endif
 
 LIB_OBJECTS := $(BUILD_DIR)/quicksand.o $(BUILD_DIR)/time.o $(BUILD_DIR)/timestamp.o
 
-TEST_SOURCES := test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
+TEST_SOURCES := test/test_copy.c test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
 TEST_BINS := $(patsubst test/test_%.c,$(BUILD_DIR)/test/%,$(TEST_SOURCES))
 ANALYZE_SOURCES := src/quicksand.c src/time.c $(TEST_SOURCES)
 TIMESTAMP_CFLAGS := $(filter-out $(SANITIZER_CFLAGS),$(CFLAGS))
@@ -86,7 +86,8 @@ $(BUILD_DIR)/test/%: test/test_%.c $(LIB_STATIC) | $(BUILD_DIR)/test
 
 test: $(TEST_BINS)
 
-check-runtime: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
+check-runtime: $(BUILD_DIR)/test/copy $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
+	./$(BUILD_DIR)/test/copy
 	./$(BUILD_DIR)/test/basic
 	./$(BUILD_DIR)/test/time
 
@@ -184,3 +185,19 @@ python: $(LIB_SHARED)
 clean:
 	rm -rf $(BUILD_DIR) $(SANITIZE_BUILD_DIR)
 	rm -f compile_commands.json
+
+$(BUILD_DIR)/test/copy: src/quicksand.c src/quicksand+windows.c include/quicksand.h include/quicksand_style.h
+
+.PHONY: bench-copy
+bench-copy: $(BUILD_DIR)/test/bench_copy
+	./$(BUILD_DIR)/test/bench_copy
+
+$(BUILD_DIR)/test/bench_copy: test/bench_copy.c src/quicksand.c src/quicksand+windows.c include/quicksand.h include/quicksand_style.h $(LIB_STATIC) | $(BUILD_DIR)/test
+	$(CC) $(CPPFLAGS) $(CFLAGS) $< $(LIB_STATIC) $(LDFLAGS) $(LDLIBS) -o $@
+
+.PHONY: bench-transport
+bench-transport: $(BUILD_DIR)/test/bench_transport
+	./$(BUILD_DIR)/test/bench_transport
+
+$(BUILD_DIR)/test/bench_transport: test/bench_transport.c include/quicksand.h $(LIB_STATIC) | $(BUILD_DIR)/test
+	$(CC) $(CPPFLAGS) $(CFLAGS) -pthread $< $(LIB_STATIC) $(LDFLAGS) $(LDLIBS) -o $@

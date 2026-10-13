@@ -192,6 +192,25 @@ $ ./build/test/sub
 20429499.443235 msgs/s (drop: 0.000000 %)
 ```
 
+## Transport benchmark
+
+Run `make bench-transport` (macOS: `make -f Makefile.darwin bench-transport`)
+or `ninja bench-transport`. For each payload size (8 B, 512 B, 1 KiB, 16 KiB,
+1 MiB), a fresh ring is created with the largest power-of-two slot count fitting
+within 32 MiB, including metadata. Rings are tested and released one at a time.
+
+A writer thread and a busy-polling reader thread start on a shared signal. Each
+test writes unthrottled for about one second, then drains the reader. Allocation
+and ring prefaulting happen before timing. Each output line reports payload size, successful reads per second, nanoseconds
+per successful read, average delivery latency, and skip percentage.
+Latency runs from the timestamp placed in the first eight payload bytes just
+before `quicksand_write` to completion of `quicksand_read`, including both copies
+and queueing. Timestamping overhead is included; the timestamp is part of the
+stated payload size. Latency covers only received messages. Thread placement is left to the OS.
+
+Pthreads are a benchmark-only dependency; library memory orders are unchanged.
+`make bench-copy` separately compares the payload copy helper against libc.
+
 ## Installation 📖
 
 Install library:

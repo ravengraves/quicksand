@@ -41,12 +41,143 @@
 #elif defined(_MSC_VER)
 #define RESTRICT __restrict
 #else
-#define RESTRICT
+#define RESTRICT restrict
 #endif
 
-// memcpy(dest, src, bytes);
-static inline void fast_memcpy(u8 *RESTRICT dest, const u8 *RESTRICT src, u64 n) {
-	memcpy(dest, src, (size_t) n);
+/* Fixed-size transfers through locals are valid for arbitrary byte alignment
+ * and object types. Keep each loaded value explicit for future checksum work.
+ */
+static inline void fast_memcpy(unsigned char *RESTRICT d,
+			       const unsigned char *RESTRICT s, size_t n) {
+	uint64_t w0, w1, w2, w3, w4, w5, w6, w7;
+	uint32_t w8;
+	uint16_t w9;
+	size_t prefix;
+
+	/* Amortize source cache-line alignment on copies of at least 4 KiB.
+	 * The destination may have a different alignment and remains supported. */
+	if(n >= 4096) {
+		prefix = (size_t) (-(uintptr_t) s & 63);
+		n -= prefix;
+		if(prefix >= 32) {
+			memcpy(&w0, s + 0, sizeof(w0));
+			memcpy(d + 0, &w0, sizeof(w0));
+			memcpy(&w1, s + 8, sizeof(w1));
+			memcpy(d + 8, &w1, sizeof(w1));
+			memcpy(&w2, s + 16, sizeof(w2));
+			memcpy(d + 16, &w2, sizeof(w2));
+			memcpy(&w3, s + 24, sizeof(w3));
+			memcpy(d + 24, &w3, sizeof(w3));
+			d += 32;
+			s += 32;
+			prefix -= 32;
+		}
+		if(prefix >= 16) {
+			memcpy(&w0, s + 0, sizeof(w0));
+			memcpy(d + 0, &w0, sizeof(w0));
+			memcpy(&w1, s + 8, sizeof(w1));
+			memcpy(d + 8, &w1, sizeof(w1));
+			d += 16;
+			s += 16;
+			prefix -= 16;
+		}
+		if(prefix >= 8) {
+			memcpy(&w0, s + 0, sizeof(w0));
+			memcpy(d + 0, &w0, sizeof(w0));
+			d += 8;
+			s += 8;
+			prefix -= 8;
+		}
+		if(prefix >= 4) {
+			memcpy(&w8, s, sizeof(w8));
+			memcpy(d, &w8, sizeof(w8));
+			d += 4;
+			s += 4;
+			prefix -= 4;
+		}
+		if(prefix >= 2) {
+			memcpy(&w9, s, sizeof(w9));
+			memcpy(d, &w9, sizeof(w9));
+			d += 2;
+			s += 2;
+			prefix -= 2;
+		}
+		if(prefix) {
+			*d++ = *s++;
+		}
+	}
+	while(n >= 64) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		memcpy(&w1, s + 8, sizeof(w1));
+		memcpy(d + 8, &w1, sizeof(w1));
+		memcpy(&w2, s + 16, sizeof(w2));
+		memcpy(d + 16, &w2, sizeof(w2));
+		memcpy(&w3, s + 24, sizeof(w3));
+		memcpy(d + 24, &w3, sizeof(w3));
+		memcpy(&w4, s + 32, sizeof(w4));
+		memcpy(d + 32, &w4, sizeof(w4));
+		memcpy(&w5, s + 40, sizeof(w5));
+		memcpy(d + 40, &w5, sizeof(w5));
+		memcpy(&w6, s + 48, sizeof(w6));
+		memcpy(d + 48, &w6, sizeof(w6));
+		memcpy(&w7, s + 56, sizeof(w7));
+		memcpy(d + 56, &w7, sizeof(w7));
+		d += 64;
+		s += 64;
+		n -= 64;
+	}
+	if(!n) {
+		return;
+	}
+
+	/* Bounded remainder: no reads or writes past the requested length. */
+	if(n >= 32) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		memcpy(&w1, s + 8, sizeof(w1));
+		memcpy(d + 8, &w1, sizeof(w1));
+		memcpy(&w2, s + 16, sizeof(w2));
+		memcpy(d + 16, &w2, sizeof(w2));
+		memcpy(&w3, s + 24, sizeof(w3));
+		memcpy(d + 24, &w3, sizeof(w3));
+		d += 32;
+		s += 32;
+		n -= 32;
+	}
+	if(n >= 16) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		memcpy(&w1, s + 8, sizeof(w1));
+		memcpy(d + 8, &w1, sizeof(w1));
+		d += 16;
+		s += 16;
+		n -= 16;
+	}
+	if(n >= 8) {
+		memcpy(&w0, s + 0, sizeof(w0));
+		memcpy(d + 0, &w0, sizeof(w0));
+		d += 8;
+		s += 8;
+		n -= 8;
+	}
+	if(n >= 4) {
+		memcpy(&w8, s, sizeof(w8));
+		memcpy(d, &w8, sizeof(w8));
+		d += 4;
+		s += 4;
+		n -= 4;
+	}
+	if(n >= 2) {
+		memcpy(&w9, s, sizeof(w9));
+		memcpy(d, &w9, sizeof(w9));
+		d += 2;
+		s += 2;
+		n -= 2;
+	}
+	if(n) {
+		*d = *s;
+	}
 }
 
 // ---------------------------------------------------------------------
@@ -119,7 +250,7 @@ static i64 build_topic_name(char name_buf[256], const char *topic,
 	}
 
 	memset(name_buf, 0, 256);
-	fast_memcpy((u8 *) name_buf, (const u8 *) topic, (u64) name_len);
+	memcpy(name_buf, topic, name_len);
 	name_buf[name_len] = '\0';
 	return (i64) name_len;
 }
@@ -138,7 +269,8 @@ static i64 validate_ringbuffer_layout(const quicksand_ringbuffer *rb,
 
 	length = rb->length;
 	message_size = rb->message_size;
-	if(!is_power_of_two_u64(length) || message_size < 16) {
+	if(length < 2 || !is_power_of_two_u64(length)
+	   || message_size < 16 || (message_size & 63)) {
 		return -EINVAL;
 	}
 	if(expected_length > 0 && length != (u64) expected_length) {
@@ -191,7 +323,7 @@ static inline void copy_topic_to_name(quicksand_connection *c, const char *topic
 		copy_len = sizeof(c->name) - 1; // truncate
 	}
 
-	fast_memcpy(c->name, (u8 *) topic, copy_len);
+	memcpy(c->name, topic, copy_len);
 }
 
 // ---------------------------------------------------------------------
@@ -216,7 +348,7 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	// ---------------------------------------------------------------
 	void *(*allocate)(size_t) = malloc;
 	if(alloc) {
-		allocate = (void *(*) (size_t)) alloc;
+		allocate = (void *(*) (size_t) ) alloc;
 	}
 
 	// ---------------------------------------------------------------
@@ -237,13 +369,14 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		u64 shared_memory_size = 0;
 
 		if(fd == -1) {
-			return -ENOENT; // segment does not exist
+			return -errno; // Preserve errors such as EACCES and EMFILE.
 		}
 
 		struct stat sb;
 		if(fstat(fd, &sb) < 0) {
+			rc = -errno;
 			best_effort_close(fd);
-			return -EIO;
+			return rc;
 		}
 		if(sb.st_size < (off_t) sizeof(quicksand_ringbuffer)) {
 			best_effort_close(fd);
@@ -254,8 +387,9 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 		void *addr = mmap(NULL, (size_t) shared_memory_size,
 				  PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		if(addr == MAP_FAILED) {
+			rc = -errno;
 			best_effort_close(fd);
-			return -errno;
+			return rc;
 		}
 
 		quicksand_ringbuffer *rb = (quicksand_ringbuffer *) addr;
@@ -321,11 +455,15 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 	if(rc < 0) {
 		return rc;
 	}
+	if(padded_unaligned > INT64_MAX - 63) {
+		return -EOVERFLOW;
+	}
 	padded_msg = round_to_64(padded_unaligned);
 	if(padded_msg < 16) {
 		return -EOVERFLOW;
 	}
-	ring_length = round_to_pow2(message_rate);
+	// Keep at least one readable slot and one writable slot.
+	ring_length = round_to_pow2(message_rate < 2 ? 2 : message_rate);
 	if(ring_length <= 0) {
 		return -EOVERFLOW;
 	}
@@ -349,8 +487,9 @@ i64 quicksand_connect(quicksand_connection **out, char *topic,
 			return -errno;
 		}
 		if(fstat(fd, &sb) < 0) {
+			rc = -errno;
 			best_effort_close(fd);
-			return -EIO;
+			return rc;
 		}
 		if(sb.st_size != shm_size) { // Abort if size does not match
 			best_effort_close(fd);
@@ -446,7 +585,7 @@ void quicksand_disconnect(quicksand_connection **c, void *dealloc) {
 		return;
 	}
 
-	if((*c)->shared_memory_handle > 0) {
+	if((*c)->buffer && (*c)->shared_memory_size > 0) {
 		// Unmap the segment first
 		best_effort_munmap((void *) (*c)->buffer,
 				   (size_t) (*c)->shared_memory_size);
@@ -558,7 +697,7 @@ i64 quicksand_write(quicksand_connection *c, u8 *msg, i64 msg_len) {
 	// 2. Block until reserve < 50% away from index
 	// -----------------------------------------------------------------
 	while(my_reserve - atomic_load_explicit(&rb->index, memory_order_relaxed)
-	      > ring_length / 2) {
+	      >= ring_length / 2) {
 		if(quicksand_ns(quicksand_now(), start_time) > QUICKSAND_TIMEOUT / 2) {
 			atomic_store_explicit(&rb->locked, quicksand_now(), memory_order_relaxed);
 			return -ETIMEDOUT;
@@ -618,8 +757,7 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 
 	// -----------------------------------------------------------------
 	// 1. Load the current write index (the slot that *has* been
-	//    committed).  We need an acquire load because the writer
-	//    released the store after writing the data.
+	//    committed). Keep this polling load relaxed by design.
 	// -----------------------------------------------------------------
 	u64 write_cursor = atomic_load_explicit(&rb->index,
 						memory_order_relaxed);
@@ -678,7 +816,8 @@ i64 quicksand_read(quicksand_connection *c, u8 *msg, i64 *msg_len) {
 	// 7. Copy to the buffer supplied by the caller.
 	// ----------------------------------------------------------------
 	if(*msg_len < payload_len) {
-		return -EINVAL; // too short
+		--c->read_index; // Keep the selected message available for retry.
+		return -EINVAL;	 // too short
 	}
 
 	fast_memcpy(msg, slot_ptr + 16, payload_len);

@@ -35,7 +35,7 @@ rule link_exe
   command = $cc $cppflags $cflags -o $out $in $ldflags $ldlibs
 
 rule run_check
-  command = ./build/test/basic && ./build/test/time && touch $out
+  command = ./build/test/copy && ./build/test/basic && ./build/test/time && touch $out
 
 rule copy_docs
   command = mkdir -p build/docs && cp $in build/docs/ && touch $out
@@ -78,6 +78,8 @@ build build/timestamp.o: cc_timestamp | build
 build build/libquicksand.so: link_shared build/quicksand.o build/time.o build/timestamp.o
 build build/libquicksand.a: archive build/quicksand.o build/time.o build/timestamp.o
 
+build build/test/copy: link_exe test/test_copy.c build/libquicksand.a | src/quicksand.c src/quicksand+windows.c include/quicksand.h include/quicksand_style.h build/test
+
 build build/test/basic: link_exe test/test_basic.c build/libquicksand.a | build/test
 build build/test/time: link_exe test/test_time.c build/libquicksand.a | build/test
 build build/test/pub: link_exe test/test_pub.c build/libquicksand.a | build/test
@@ -106,7 +108,7 @@ build build/.sanitize_check.stamp: delegate_make | build
 build build/.analysis.stamp: delegate_make | build
   target = analysis
 
-build all: phony build/libquicksand.so build/libquicksand.a build/test/basic build/test/time build/test/pub build/test/sub
+build all: phony build/test/copy build/libquicksand.so build/libquicksand.a build/test/basic build/test/time build/test/pub build/test/sub
 build check: phony build/.check.stamp
 build clean: phony .ninja-clean.stamp
 build docs: phony build/docs/.stamp build/docs/quicksand.3
@@ -123,3 +125,13 @@ build sanitize-check: phony build/.sanitize_check.stamp
 build analysis: phony build/.analysis.stamp
 
 default all
+
+# Threaded transport benchmark; pthread is a benchmark-only dependency.
+build build/test/bench_transport: link_exe test/bench_transport.c build/libquicksand.a | include/quicksand.h build/test
+  cflags = -O3 -g -Wall -Wextra -std=c11 -fPIC -pthread
+  ldlibs = -lm -pthread
+
+rule run_transport_benchmark
+  command = ./build/test/bench_transport
+  pool = console
+build bench-transport: run_transport_benchmark build/test/bench_transport
