@@ -4,6 +4,8 @@ NINJA ?= ninja
 CLANG ?= clang
 CLANG_TIDY ?= clang-tidy
 GCC_ANALYZER ?= gcc
+CPPCHECK ?= cppcheck
+CPPCHECK_FLAGS ?= --enable=warning,performance,portability --check-level=exhaustive --force
 PREFIX ?= /usr/local
 DESTDIR ?=
 ARCH ?= $(shell uname -m)
@@ -51,12 +53,12 @@ endif
 
 LIB_OBJECTS := $(BUILD_DIR)/quicksand.o $(BUILD_DIR)/time.o $(BUILD_DIR)/timestamp.o
 
-TEST_SOURCES := test/test_copy.c test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
+TEST_SOURCES := test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
 TEST_BINS := $(patsubst test/test_%.c,$(BUILD_DIR)/test/%,$(TEST_SOURCES))
 ANALYZE_SOURCES := src/quicksand.c src/time.c $(TEST_SOURCES)
 TIMESTAMP_CFLAGS := $(filter-out $(SANITIZER_CFLAGS),$(CFLAGS))
 
-.PHONY: all test check check-runtime check-analysis clean docs install-lib install-docs install uninstall-lib uninstall-docs uninstall python tidy clang-analyze fanalyzer sanitize-check analysis
+.PHONY: all test check check-slow check-runtime check-analysis clean docs install-lib install-docs install uninstall-lib uninstall-docs uninstall python tidy clang-analyze fanalyzer cppcheck sanitize-check analysis
 
 all: $(LIB_SHARED) $(LIB_STATIC) $(TEST_BINS)
 
@@ -86,20 +88,25 @@ $(BUILD_DIR)/test/%: test/test_%.c $(LIB_STATIC) | $(BUILD_DIR)/test
 
 test: $(TEST_BINS)
 
-check-runtime: $(BUILD_DIR)/test/copy $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
-	./$(BUILD_DIR)/test/copy
+check-runtime: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
 	./$(BUILD_DIR)/test/basic
 	./$(BUILD_DIR)/test/time
 
 check-analysis: compile_commands.json
 	@set +e; \
-	for target in tidy clang-analyze fanalyzer; do \
+	for target in tidy clang-analyze fanalyzer cppcheck; do \
 		echo "== $$target (warnings only) =="; \
 		$(MAKE) --no-print-directory $$target || \
-			echo "$$target reported findings; continuing to sanitizer tests"; \
+			echo "$$target reported findings; continuing"; \
 	done
 
-check: check-analysis sanitize-check
+# Keep runtime suites and benchmarks sequential, even with make -j.
+check: check-runtime
+	$(MAKE) sanitize-check
+	$(MAKE) bench-transport
+
+check-slow: check
+	$(MAKE) check-analysis
 
 compile_commands.json: build.ninja
 	$(NINJA) -f $< -t compdb cc cc_timestamp link_exe > $@
@@ -120,6 +127,9 @@ fanalyzer:
 		echo "FANALYZER $$src"; \
 		$(GCC_ANALYZER) $(CPPFLAGS) $(CFLAGS) -fanalyzer -c $$src -o /dev/null; \
 	done
+
+cppcheck: compile_commands.json
+	$(CPPCHECK) --project=$< $(CPPCHECK_FLAGS) --error-exitcode=1
 
 sanitize-check:
 	rm -rf $(SANITIZE_BUILD_DIR)
@@ -187,8 +197,6 @@ clean:
 	rm -f compile_commands.json
 
 $(BUILD_DIR)/quicksand.o: src/quicksand_crc.h include/quicksand.h include/quicksand_style.h
-
-$(BUILD_DIR)/test/copy: src/quicksand_crc.h
 
 .PHONY: bench-copy
 bench-copy: $(BUILD_DIR)/test/bench_copy

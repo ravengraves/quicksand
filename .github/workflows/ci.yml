@@ -1,0 +1,39 @@
+name: Quicksand CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang
+
+      - name: Build
+        run: make -j2 all
+
+      - name: Test and benchmark
+        shell: bash
+        run: |
+          make -j2 check | tee build/check.log
+          {
+            echo '### Transport benchmark'
+            echo '```text'
+            lscpu | grep 'Model name:'
+            grep 'msgs/s' build/check.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

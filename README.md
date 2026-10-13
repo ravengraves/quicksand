@@ -263,12 +263,22 @@ cd lang/python && pip install .
 
 ## Analysis
 
+`make check` runs the runtime tests, Clang ASan/UBSan tests, then the transport
+benchmark. GitHub CI runs this quick check and includes benchmark results in
+each run's job summary. Hosted runner timings are informational and can vary.
+
+`make check-slow` also runs advisory static analyzers, including cppcheck. It
+requires `ninja`, `clang-tidy`, `gcc`, and `cppcheck` in addition to the quick
+check's build tools and Clang. Findings are printed without failing the slow
+check; run `make cppcheck` directly to fail on its findings.
+
 Static analysis and sanitizer targets are available from the repo root:
 ```
 make compile_commands.json
 make tidy
 make clang-analyze
 make fanalyzer
+make cppcheck
 make sanitize-check
 make analysis
 ```

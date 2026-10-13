@@ -130,7 +130,8 @@ make all
 The library build is intentionally simple:
 
 - *make all* builds the shared library, static library, and test executables.
-- *make check* runs the basic Quicksand test programs.
+- *make check* runs the runtime tests, ASan/UBSan tests, and transport benchmark.
+- *make check-slow* also runs static analyzers, including cppcheck.
 - *make docs* generates documentation, including this man page via *scdoc*(1).
 
 For pkg-config consumers, *make install-lib* installs _quicksand.pc_.

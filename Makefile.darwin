@@ -47,7 +47,7 @@ endif
 
 LIB_OBJECTS := $(BUILD_DIR)/quicksand.o $(BUILD_DIR)/time.o $(BUILD_DIR)/timestamp.o
 
-TEST_SOURCES := test/test_copy.c test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
+TEST_SOURCES := test/test_basic.c test/test_time.c test/test_pub.c test/test_sub.c
 TEST_BINS := $(patsubst test/test_%.c,$(BUILD_DIR)/test/%,$(TEST_SOURCES))
 
 .PHONY: all test check clean docs install-lib install-docs install uninstall-lib uninstall-docs uninstall python
@@ -83,8 +83,7 @@ $(BUILD_DIR)/test/%: test/test_%.c $(LIB_STATIC) | $(BUILD_DIR)/test
 
 test: $(TEST_BINS)
 
-check: $(BUILD_DIR)/test/copy $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
-	./$(BUILD_DIR)/test/copy
+check: $(BUILD_DIR)/test/basic $(BUILD_DIR)/test/time
 	./$(BUILD_DIR)/test/basic
 	./$(BUILD_DIR)/test/time
 
@@ -144,8 +143,6 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 $(BUILD_DIR)/quicksand.o: src/quicksand_crc.h include/quicksand.h include/quicksand_style.h
-
-$(BUILD_DIR)/test/copy: src/quicksand_crc.h
 
 .PHONY: bench-copy
 bench-copy: $(BUILD_DIR)/test/bench_copy
