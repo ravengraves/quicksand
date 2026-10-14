@@ -1,5 +1,7 @@
 # Quicksand 🏜️
 
+[![Quicksand CI](https://github.com/ravengraves/quicksand/actions/workflows/ci.yml/badge.svg)](https://github.com/ravengraves/quicksand/actions/workflows/ci.yml)
+
 A multiple-reader multiple-writer communication library enabling robots to think at the speed of silicon!
 
 We have benchmarked sending over 15 million messages per second per process on a on a 2020 laptop processor (i7-1165G7 @ 2.80GHz). This library uses a lock-free shared-memory ring buffer in order to perform inter-process message passing significantly faster than other libraries.
