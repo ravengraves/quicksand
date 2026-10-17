@@ -267,6 +267,11 @@ make check
 sudo make install
 ```
 
+Install documentation separately (requires `scdoc`):
+```sh
+sudo make install-docs
+```
+
 Python install (after library install):
 ```
 cd lang/python && pip install .

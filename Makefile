@@ -174,7 +174,7 @@ install-docs: docs
 	install -m 0644 $(DOC_FILES) $(DESTDIR)$(PREFIX)/share/doc/quicksand/
 	install -m 0644 $(MAN_PAGE) $(DESTDIR)$(PREFIX)/share/man/man3/
 
-install: install-lib install-docs
+install: install-lib
 
 uninstall-lib:
 	rm -f $(DESTDIR)$(PREFIX)/lib/libquicksand.so
